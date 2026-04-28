@@ -13,21 +13,18 @@ const DailyTimeRegister = () => {
 
   const [selectedDate, setSelectedDate] = useState(today);
   
-  // State for caching today's data when viewing other days
   const [todayEntries, setTodayEntries] = useState([]);
   const [todayIsWorking, setTodayIsWorking] = useState(false);
 
   const [totalWorkTime, setTotalWorkTime] = useState('00:00');
 
   useEffect(() => {
-    // On initial load, set the component's state to today's state
     setEntries(todayEntries);
     setIsWorking(todayIsWorking);
-  }, []); // Runs only once
+  }, []);
 
   useEffect(() => {
     calculateTotalTime(entries);
-    // If we are on the current day, keep the cache updated
     if (selectedDate.format() === today.format()) {
         setTodayEntries(entries);
         setTodayIsWorking(isWorking);
@@ -42,7 +39,7 @@ const DailyTimeRegister = () => {
   const calculateTotalTime = (data) => {
     let totalMinutes = 0;
     data.forEach(entry => {
-      if (entry.subject !== 'استراحت' && entry.startTime && entry.endTime) {
+      if (!entry.isRest && entry.startTime && entry.endTime) {
         try {
             const [startH, startM] = entry.startTime.split(':').map(Number);
             const [endH, endM] = entry.endTime.split(':').map(Number);
@@ -63,52 +60,52 @@ const DailyTimeRegister = () => {
   };
 
   const fetchDummyDataForDate = (dateObj) => {
-    const formattedDate = dateObj.format("YYYY/MM/DD");
-    console.log(`Fetching data for: ${formattedDate}`);
-    
-    // Dummy data for past days
     const dummyData = [
-      { id: 1, startTime: '08:00', endTime: '10:30', subject: 'توسعه فرانت‌اند' },
-      { id: 2, startTime: '10:30', endTime: '11:00', subject: 'استراحت' },
-      { id: 3, startTime: '11:00', endTime: '14:00', subject: 'جلسه با تیم' },
+      { id: 1, startTime: '08:00', endTime: '10:30', department: 'فنی', project: 'توسعه', subproject: 'فرانت‌اند', subsubproject: 'پنل ادمین', description: 'طراحی جدول', isRest: false },
+      { id: 2, startTime: '10:30', endTime: '11:00', isRest: true },
+      { id: 3, startTime: '11:00', endTime: '14:00', department: 'فنی', project: 'توسعه', subproject: 'بک‌اند', subsubproject: 'API', description: 'نوشتن سرویس ورود', isRest: false },
     ];
     setEntries(dummyData);
-    setIsWorking(false); // Can't be 'working' on a past day
+    setIsWorking(false); 
   };
 
   const handleDateChange = (date) => {
     setSelectedDate(date);
     if (date.format() === today.format()) {
-      // If returning to today, restore today's state from cache
       setEntries(todayEntries);
       setIsWorking(todayIsWorking);
     } else {
-      // If going to a past day, fetch its data
       fetchDummyDataForDate(date);
     }
   };
 
   const handleGoToToday = () => {
       handleDateChange(today);
-  }
+  };
 
-  const handleStart = (subject = 'عادی') => {
+  const handleStart = () => {
     const newEntry = {
       id: Date.now(),
       startTime: getCurrentTime(),
       endTime: '',
-      subject: subject,
+      department: '',
+      project: '',
+      subproject: '',
+      subsubproject: '',
+      description: '',
+      isRest: false
     };
     setEntries([...entries, newEntry]);
     setIsWorking(true);
   };
 
-  const handleAction = (actionType, newSubject = '') => {
+  const handleAction = (actionType) => {
     const currentTime = getCurrentTime();
     const updatedEntries = [...entries];
     const lastIndex = updatedEntries.length - 1;
+    const lastEntry = updatedEntries[lastIndex];
 
-    if (lastIndex >= 0 && !updatedEntries[lastIndex].endTime) {
+    if (lastIndex >= 0 && !lastEntry.endTime) {
       updatedEntries[lastIndex].endTime = currentTime;
     }
 
@@ -120,13 +117,18 @@ const DailyTimeRegister = () => {
         id: Date.now(),
         startTime: currentTime,
         endTime: '',
-        subject: actionType === 'rest' ? 'استراحت' : newSubject,
+        department: actionType === 'change' ? lastEntry.department : '',
+        project: actionType === 'change' ? lastEntry.project : '',
+        subproject: actionType === 'change' ? lastEntry.subproject : '',
+        subsubproject: actionType === 'change' ? lastEntry.subsubproject : '',
+        description: actionType === 'change' ? lastEntry.description : '',
+        isRest: actionType === 'rest'
       });
       setEntries(updatedEntries);
     }
   };
 
-  const handleTimeEdit = (index, field, value) => {
+  const handleFieldEdit = (index, field, value) => {
     const updatedEntries = [...entries];
     updatedEntries[index][field] = value;
 
@@ -136,12 +138,7 @@ const DailyTimeRegister = () => {
     if (field === 'startTime' && index > 0) {
       updatedEntries[index - 1].endTime = value;
     }
-    setEntries(updatedEntries);
-  };
-
-  const handleSubjectEdit = (index, value) => {
-    const updatedEntries = [...entries];
-    updatedEntries[index].subject = value;
+    
     setEntries(updatedEntries);
   };
 
@@ -150,9 +147,13 @@ const DailyTimeRegister = () => {
           id: Date.now(),
           startTime: '00:00',
           endTime: '00:00',
-          subject: 'فعالیت جدید'
+          department: '',
+          project: '',
+          subproject: '',
+          subsubproject: '',
+          description: '',
+          isRest: false
       };
-      // For simplicity, add to the end. Sorting can be added later if needed.
       setEntries([...entries, newRow]);
   };
 
@@ -162,7 +163,7 @@ const DailyTimeRegister = () => {
 
   const handleSubmitToServer = async () => {
     const apiDate = selectedDate.convert('gregorian').format('YYYY-MM-DD');
-    const workEntries = entries.filter(e => e.endTime && e.startTime && e.subject !== 'استراحت');
+    const workEntries = entries.filter(e => e.endTime && e.startTime && !e.isRest);
 
     try {
       for (const entry of workEntries) {
@@ -172,10 +173,9 @@ const DailyTimeRegister = () => {
           end_time: entry.endTime,
           type: 'normal',
           deduction_hours: 'PT0S',
-          description: entry.subject
+          description: `دپارتمان: ${entry.department} | پروژه: ${entry.project} | زیرپروژه: ${entry.subproject} | زیرزیرپروژه: ${entry.subsubproject} | توضیحات: ${entry.description}`
         };
         console.log("Sending to server: ", payload);
-        // await api.post('/api/v1/user/create-timesheet-entry', payload);
       }
       alert('اطلاعات با موفقیت ثبت شد');
     } catch (error) {
@@ -185,8 +185,12 @@ const DailyTimeRegister = () => {
   };
 
   const currentEntry = entries[entries.length - 1];
-  const isResting = currentEntry?.subject === 'استراحت' && !currentEntry?.endTime;
+  const isResting = currentEntry?.isRest && !currentEntry?.endTime;
   const isToday = selectedDate.format() === today.format();
+  
+  // شرط نمایش دکمه حذف و افزودن ردیف جدید:
+  // یا امروز نیست، یا اگر امروز است کاربر روی دکمه "پایان" کلیک کرده باشد (!isWorking)
+  const allowRowEdits = !isToday || (!isWorking && entries.length > 0);
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md border border-gray-100 min-h-[500px]" dir="rtl">
@@ -214,7 +218,7 @@ const DailyTimeRegister = () => {
       {isToday && (
           <div className="mb-6 flex gap-4 justify-center">
             {!isWorking && !isResting && entries.length === 0 && (
-              <button onClick={() => handleStart('عادی')} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
+              <button onClick={handleStart} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
                 شروع کار
               </button>
             )}
@@ -226,13 +230,13 @@ const DailyTimeRegister = () => {
                 <button onClick={() => handleAction('rest')} className="bg-yellow-500 text-white px-6 py-2 rounded-lg hover:bg-yellow-600">
                   استراحت
                 </button>
-                <button onClick={() => handleAction('change', 'موضوع جدید')} className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">
+                <button onClick={() => handleAction('change')} className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">
                   تغییر موضوع
                 </button>
               </>
             )}
             {isResting && (
-              <button onClick={() => handleAction('change', 'عادی')} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
+              <button onClick={() => handleAction('change')} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
                 پایان استراحت
               </button>
             )}
@@ -243,40 +247,56 @@ const DailyTimeRegister = () => {
         <table className="w-full text-sm text-center text-gray-600">
           <thead className="bg-gray-50 text-gray-700 font-semibold border-b">
             <tr>
-              <th className="px-4 py-3">ردیف</th>
               <th className="px-4 py-3">شروع</th>
               <th className="px-4 py-3">پایان</th>
-              <th className="px-4 py-3">موضوع فعالیت</th>
-              <th className="px-4 py-3">وضعیت</th>
-              {!isToday && <th className="px-4 py-3">عملیات</th>}
+              <th className="px-4 py-3">دپارتمان</th>
+              <th className="px-4 py-3">پروژه</th>
+              <th className="px-4 py-3">زیرپروژه</th>
+              <th className="px-4 py-3">زیرزیرپروژه</th>
+              <th className="px-4 py-3">توضیحات</th>
+              {allowRowEdits && <th className="px-4 py-3">عملیات</th>}
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
               <tr>
-                <td colSpan={isToday ? 5 : 6} className="py-8 text-gray-400">اطلاعاتی برای این تاریخ ثبت نشده است.</td>
+                <td colSpan={allowRowEdits ? 8 : 7} className="py-8 text-gray-400">اطلاعاتی برای این تاریخ ثبت نشده است.</td>
               </tr>
             ) : (
               entries.map((entry, index) => (
-                <tr key={entry.id} className={`border-b hover:bg-gray-50 ${entry.subject === 'استراحت' ? 'bg-orange-50' : ''}`}>
-                  <td className="px-4 py-3 font-medium">{index + 1}</td>
+                <tr key={entry.id} className={`border-b hover:bg-gray-50 ${entry.isRest ? 'bg-orange-50' : ''}`}>
                   <td className="px-4 py-3">
-                    <input type="time" value={entry.startTime} onChange={(e) => handleTimeEdit(index, 'startTime', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500"/>
+                    <input type="time" value={entry.startTime} onChange={(e) => handleFieldEdit(index, 'startTime', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500"/>
                   </td>
                   <td className="px-4 py-3">
-                    <input type="time" value={entry.endTime} onChange={(e) => handleTimeEdit(index, 'endTime', e.target.value)} disabled={isToday && !entry.endTime && isWorking} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 disabled:opacity-50" placeholder="..."/>
+                    <input type="time" value={entry.endTime} onChange={(e) => handleFieldEdit(index, 'endTime', e.target.value)} disabled={isToday && !entry.endTime && isWorking} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 disabled:opacity-50" placeholder="..."/>
                   </td>
-                  <td className="px-4 py-3">
-                    <input type="text" value={entry.subject} onChange={(e) => handleSubjectEdit(index, e.target.value)} className={`bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full ${entry.subject === 'استراحت' ? 'text-orange-600 font-bold' : ''}`}/>
-                  </td>
-                  <td className="px-4 py-3">
-                    {isToday && !entry.endTime ? (
-                      <span className="text-green-600 font-semibold text-xs bg-green-100 px-2 py-1 rounded-full">در جریان</span>
-                    ) : (
-                      <span className="text-gray-500 font-semibold text-xs bg-gray-200 px-2 py-1 rounded-full">پایان یافته</span>
-                    )}
-                  </td>
-                  {!isToday && (
+                  
+                  {entry.isRest ? (
+                    <td colSpan="5" className="px-4 py-3 text-orange-600 font-bold tracking-widest text-center">
+                      --- زمان استراحت ---
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3">
+                        <input type="text" value={entry.department || ''} onChange={(e) => handleFieldEdit(index, 'department', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="text" value={entry.project || ''} onChange={(e) => handleFieldEdit(index, 'project', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="text" value={entry.subproject || ''} onChange={(e) => handleFieldEdit(index, 'subproject', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="text" value={entry.subsubproject || ''} onChange={(e) => handleFieldEdit(index, 'subsubproject', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input type="text" value={entry.description || ''} onChange={(e) => handleFieldEdit(index, 'description', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full min-w-[120px]" placeholder="..."/>
+                      </td>
+                    </>
+                  )}
+
+                  {allowRowEdits && (
                     <td className="px-4 py-3">
                       <button onClick={() => handleDeleteRow(entry.id)} className="text-red-500 hover:text-red-700 font-bold">حذف</button>
                     </td>
@@ -288,10 +308,10 @@ const DailyTimeRegister = () => {
           {entries.length > 0 && (
             <tfoot className="bg-indigo-50 border-t-2 border-indigo-100">
               <tr>
-                <td colSpan={isToday ? 3 : 4} className="px-4 py-4 text-right font-bold text-indigo-800">
+                <td colSpan={allowRowEdits ? 7 : 6} className="px-4 py-4 text-right font-bold text-indigo-800">
                   مجموع ساعات کاری مفید (بدون استراحت):
                 </td>
-                <td colSpan="2" className="px-4 py-4 text-center font-bold text-xl text-indigo-700" dir="ltr">
+                <td className="px-4 py-4 text-center font-bold text-xl text-indigo-700" dir="ltr">
                   {totalWorkTime}
                 </td>
               </tr>
@@ -300,10 +320,10 @@ const DailyTimeRegister = () => {
         </table>
       </div>
 
-      {!isToday && entries.length > 0 && (
+      {allowRowEdits && (
           <div className="flex justify-center mb-6">
-              <button onClick={handleAddRow} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">
-                  افزودن ردیف جدید
+              <button onClick={handleAddRow} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 font-medium transition">
+                  + افزودن ردیف جدید
               </button>
           </div>
       )}
