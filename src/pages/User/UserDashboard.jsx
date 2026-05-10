@@ -1,14 +1,37 @@
-import React, { useState } from 'react';
-import  DailyTimeRegister  from './DailyTimeRegister';
+import React, { useState, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import DailyTimeRegister from './DailyTimeRegister';
+import { AuthContext } from '../../context/AuthContext'; // مسیر ایمپورت را بر اساس ساختار پوشه خود تنظیم کنید
 
 const UserDashboard = () => {
-  // Set the default active tab
   const [activeTab, setActiveTab] = useState('daily');
+  const { logout } = useContext(AuthContext); // دریافت تابع خروج از کانتکست
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    if (logout) {
+      logout(); // پاک کردن توکن از state و localStorage
+    } else {
+      localStorage.removeItem('token'); // پشتیبان در صورت عدم وجود تابع در کانتکست
+    }
+    navigate('/login'); // هدایت به صفحه لاگین
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-8" dir="rtl">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">داشبورد کاربر</h1>
+        
+        {/* Header Section with Title and Logout Button */}
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">داشبورد کاربر</h1>
+          
+          <button
+            onClick={handleLogout}
+            className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 shadow-sm"
+          >
+            خروج از حساب
+          </button>
+        </div>
         
         {/* Tab Navigation */}
         <div className="flex border-b border-gray-200 mb-6">

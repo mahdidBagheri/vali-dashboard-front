@@ -1,16 +1,24 @@
+// src/services/api.js
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000', // Your FastAPI backend URL
+  // baseURL is intentionally left out to use Vite proxy
 });
 
-// Interceptor to add the JWT token to every request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use(
+  (config) => {
+    // 1. Read the exact key you used during login
+    const token = localStorage.getItem('token'); 
+    
+    // 2. Attach it to the Authorization header
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-  return config;
-}, (error) => Promise.reject(error));
+);
 
 export default api;
