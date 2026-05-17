@@ -6,21 +6,22 @@ const AddUserForm = () => {
   const [formData, setFormData] = useState({
     name: '',
     surname: '',
-    phone_number: '', // مقدار پیش‌فرض خالی است
+    phone_number: '', 
     password: '',
     role: 'regular_user', 
-    departments: [], // تبدیل به آرایه برای پشتیبانی از انتخاب چندگانه
+    departments: [], 
     supervisor_phone_number: ''
   });
   const [departmentsList, setDepartmentsList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
-  // دریافت لیست دپارتمان‌ها در زمان لود کامپوننت
+  // دریافت لیست دپارتمان‌ها در زمان لود کامپوننت با API جدید
   useEffect(() => {
     const fetchDepartments = async () => {
       try {
-        const response = await api.get('/api/v1/admin/get-all-departments');
+        // آدرس جدید API جایگزین شد
+        const response = await api.get('/api/v1/department/get-all-departments');
         setDepartmentsList(response.data || []);
       } catch (error) {
         console.error("Error fetching departments:", error);
@@ -37,7 +38,6 @@ const AddUserForm = () => {
     }));
   };
 
-  // هندلر مخصوص برای منوی کشویی چند انتخابی دپارتمان‌ها
   const handleDepartmentChange = (e) => {
     const options = e.target.options;
     const selectedDepartments = [];
@@ -59,14 +59,13 @@ const AddUserForm = () => {
 
     const payload = {
       ...formData,
-      // دپارتمان‌ها الان خودشان یک آرایه هستند، پس نیازی به split نیست
       supervisor_phone_number: formData.supervisor_phone_number
         ? formData.supervisor_phone_number.split(',').map(item => item.trim())
         : []
     };
 
     try {
-      const response = await api.post('/api/v1/admin/create-user', payload);
+      const response = await api.post('/api/v1/user/create-user', payload);
       
       setMessage({ type: 'success', text: 'کاربر با موفقیت ایجاد شد!' });
       
@@ -187,7 +186,7 @@ const AddUserForm = () => {
             value={formData.departments} 
             onChange={handleDepartmentChange} 
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
-            size="4" // نمایش ۴ ردیف به صورت پیش‌فرض برای راحت‌تر بودن انتخاب
+            size="4" 
           >
             {departmentsList.map(dept => (
               <option key={dept.name} value={dept.name}>

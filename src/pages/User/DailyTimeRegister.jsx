@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../../services/api'; // در صورت نیاز تنظیم کنید
+import api from '../../services/api'; 
 import { Calendar } from "react-multi-date-picker";
 import persian from "react-date-object/calendars/persian";
 import persian_fa from "react-date-object/locales/persian_fa";
@@ -10,17 +10,19 @@ const DailyTimeRegister = () => {
   const [isWorking, setIsWorking] = useState(false);
   
   const today = useRef(new DateObject({ calendar: persian, locale: persian_fa })).current;
-
   const [selectedDate, setSelectedDate] = useState(today);
   
   const [todayEntries, setTodayEntries] = useState([]);
   const [todayIsWorking, setTodayIsWorking] = useState(false);
-
   const [totalWorkTime, setTotalWorkTime] = useState('00:00');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const lastSavedEntriesRef = useRef([]);
 
   useEffect(() => {
     setEntries(todayEntries);
     setIsWorking(todayIsWorking);
+    lastSavedEntriesRef.current = JSON.parse(JSON.stringify(todayEntries));
   }, []);
 
   useEffect(() => {
@@ -41,8 +43,8 @@ const DailyTimeRegister = () => {
     data.forEach(entry => {
       if (!entry.isRest && entry.startTime && entry.endTime) {
         try {
-            const [startH, startM] = entry.startTime.split(':').map(Number);
-            const [endH, endM] = entry.endTime.split(':').map(Number);
+            const [startH, startM] = toEnglishDigits(entry.startTime).split(':').map(Number);
+            const [endH, endM] = toEnglishDigits(entry.endTime).split(':').map(Number);
             let diff = (endH * 60 + endM) - (startH * 60 + startM);
             if (diff > 0) {
               totalMinutes += diff;
@@ -60,13 +62,10 @@ const DailyTimeRegister = () => {
   };
 
   const fetchDummyDataForDate = (dateObj) => {
-    const dummyData = [
-      { id: 1, startTime: '08:00', endTime: '10:30', department: 'فنی', project: 'توسعه', subproject: 'فرانت‌اند', subsubproject: 'پنل ادمین', description: 'طراحی جدول', isRest: false },
-      { id: 2, startTime: '10:30', endTime: '11:00', isRest: true },
-      { id: 3, startTime: '11:00', endTime: '14:00', department: 'فنی', project: 'توسعه', subproject: 'بک‌اند', subsubproject: 'API', description: 'نوشتن سرویس ورود', isRest: false },
-    ];
+    const dummyData = [];
     setEntries(dummyData);
     setIsWorking(false); 
+    lastSavedEntriesRef.current = JSON.parse(JSON.stringify(dummyData));
   };
 
   const handleDateChange = (date) => {
@@ -74,6 +73,7 @@ const DailyTimeRegister = () => {
     if (date.format() === today.format()) {
       setEntries(todayEntries);
       setIsWorking(todayIsWorking);
+      lastSavedEntriesRef.current = JSON.parse(JSON.stringify(todayEntries));
     } else {
       fetchDummyDataForDate(date);
     }
@@ -83,7 +83,82 @@ const DailyTimeRegister = () => {
       handleDateChange(today);
   };
 
-  const handleStart = () => {
+  // --- Utility & API Helpers ---
+
+  // تابع کمکی برای تبدیل اعداد فارسی به انگلیسی (برای اطمینان از فرمت استاندارد)
+  const toEnglishDigits = (str) => {
+    return str ? str.toString().replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)) : "";
+  };
+
+  // تبدیل تاریخ انتخابی به فرمت استاندارد میلادی (YYYY-MM-DD) با اعداد انگلیسی
+  const getApiDate = () => {
+    if (selectedDate && typeof selectedDate.toDate === 'function') {
+      const jsDate = selectedDate.toDate(); // تبدیل به Date استاندارد جاوااسکریپت که میلادی است
+      const year = jsDate.getFullYear();
+      const month = String(jsDate.getMonth() + 1).padStart(2, '0');
+      const day = String(jsDate.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return toEnglishDigits(selectedDate);
+  };
+
+  const formatTime = (timeStr) => {
+    if (!timeStr) return "00:00:00";
+    let engTime = toEnglishDigits(timeStr);
+    return engTime.length === 5 ? `${engTime}:00` : engTime;
+  };
+
+  const buildDescription = (entry) => {
+    if (entry.isRest) return "زمان استراحت";
+    return `دپارتمان: ${entry.department || ''} | پروژه: ${entry.project || ''} | زیرپروژه: ${entry.subproject || ''} | زیرزیرپروژه: ${entry.subsubproject || ''} | توضیحات: ${entry.description || ''}`;
+  };
+
+  const createEntryApi = async (entry) => {
+    const payload = {
+      date_: getApiDate(),
+      start_time: formatTime(entry.startTime),
+      end_time: formatTime(entry.endTime || entry.startTime),
+      deduction_hours: "PT0S",
+      type: entry.isRest ? "rest" : "normal",
+      description: buildDescription(entry),
+      project_name: entry.project || ""
+    };
+    return api.post('/api/v1/timesheet/create-timesheet-entry', payload);
+  };
+
+  const updateEntryApi = async (originalEntry, newEntry) => {
+    const payload = {
+      input_date_time: {
+        date_: getApiDate(),
+        start_time: formatTime(originalEntry.startTime),
+        end_time: formatTime(originalEntry.endTime || originalEntry.startTime)
+      },
+      timesheet_data: {
+        date_: getApiDate(),
+        start_time: formatTime(newEntry.startTime),
+        end_time: formatTime(newEntry.endTime || newEntry.startTime),
+        deduction_hours: "PT0S",
+        type: newEntry.isRest ? "rest" : "normal",
+        description: buildDescription(newEntry),
+        project_name: newEntry.project || ""
+      }
+    };
+    return api.put('/api/v1/timesheet/update-timesheet-entry', payload);
+  };
+
+  const deleteEntryApi = async (entry) => {
+    const payload = {
+      date_: getApiDate(),
+      start_time: formatTime(entry.startTime),
+      end_time: formatTime(entry.endTime || entry.startTime)
+    };
+    return api.delete('/api/v1/timesheet/delete-timesheet-entry', { data: payload });
+  };
+
+
+  // --- Action Buttons (Direct Server Sync) ---
+  const handleStart = async () => {
+    setIsSaving(true);
     const newEntry = {
       id: Date.now(),
       startTime: getCurrentTime(),
@@ -93,50 +168,97 @@ const DailyTimeRegister = () => {
       subproject: '',
       subsubproject: '',
       description: '',
-      isRest: false
+      isRest: false,
+      isSaved: true
     };
-    setEntries([...entries, newEntry]);
-    setIsWorking(true);
+    
+    try {
+      await createEntryApi(newEntry);
+      setEntries([...entries, newEntry]);
+      setIsWorking(true);
+      lastSavedEntriesRef.current.push({ ...newEntry });
+    } catch (e) {
+      alert("خطا در ارتباط با سرور. رکورد ایجاد نشد.");
+      console.error(e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAction = (actionType) => {
+  const handleAction = async (actionType) => {
+    setIsSaving(true);
     const currentTime = getCurrentTime();
-    const updatedEntries = [...entries];
+    let updatedEntries = [...entries];
     const lastIndex = updatedEntries.length - 1;
     const lastEntry = updatedEntries[lastIndex];
+    let updatedSavedEntries = [...lastSavedEntriesRef.current];
 
-    if (lastIndex >= 0 && !lastEntry.endTime) {
-      updatedEntries[lastIndex].endTime = currentTime;
-    }
+    try {
+      // 1. Close the previous active entry
+      if (lastIndex >= 0 && !lastEntry.endTime) {
+        const originalLastEntry = updatedSavedEntries.find(e => e.id === lastEntry.id) || lastEntry;
+        const closedEntry = { ...lastEntry, endTime: currentTime };
 
-    if (actionType === 'end') {
-      setIsWorking(false);
-      setEntries(updatedEntries);
-    } else if (actionType === 'rest' || actionType === 'change') {
-      updatedEntries.push({
-        id: Date.now(),
-        startTime: currentTime,
-        endTime: '',
-        department: actionType === 'change' ? lastEntry.department : '',
-        project: actionType === 'change' ? lastEntry.project : '',
-        subproject: actionType === 'change' ? lastEntry.subproject : '',
-        subsubproject: actionType === 'change' ? lastEntry.subsubproject : '',
-        description: actionType === 'change' ? lastEntry.description : '',
-        isRest: actionType === 'rest'
-      });
-      setEntries(updatedEntries);
+        // Save the closed end_time directly
+        await updateEntryApi(originalLastEntry, closedEntry);
+        
+        updatedEntries[lastIndex] = closedEntry;
+        closedEntry.isSaved = true;
+
+        const savedIndex = updatedSavedEntries.findIndex(e => e.id === closedEntry.id);
+        if (savedIndex >= 0) updatedSavedEntries[savedIndex] = { ...closedEntry };
+      }
+
+      // 2. Start new action if not 'end'
+      if (actionType === 'end') {
+        setIsWorking(false);
+        setEntries(updatedEntries);
+        lastSavedEntriesRef.current = updatedSavedEntries;
+      } else if (actionType === 'rest' || actionType === 'change') {
+        const newEntry = {
+          id: Date.now(),
+          startTime: currentTime,
+          endTime: '',
+          department: actionType === 'change' ? lastEntry.department : '',
+          project: actionType === 'change' ? lastEntry.project : '',
+          subproject: actionType === 'change' ? lastEntry.subproject : '',
+          subsubproject: actionType === 'change' ? lastEntry.subsubproject : '',
+          description: actionType === 'change' ? lastEntry.description : '',
+          isRest: actionType === 'rest',
+          isSaved: true 
+        };
+
+        await createEntryApi(newEntry);
+
+        updatedEntries.push(newEntry);
+        updatedSavedEntries.push({ ...newEntry });
+        setEntries(updatedEntries);
+        lastSavedEntriesRef.current = updatedSavedEntries;
+      }
+    } catch (error) {
+      console.error("خطا در ثبت عملیات:", error);
+      alert("خطا در ارتباط با سرور هنگام ثبت اکشن");
+    } finally {
+      setIsSaving(false);
     }
   };
 
+
+  // --- Inline Table Edits ---
   const handleFieldEdit = (index, field, value) => {
     const updatedEntries = [...entries];
     updatedEntries[index][field] = value;
+    
+    // Mark as unsaved to be picked up by the manual "Save" button
+    updatedEntries[index].isSaved = false;
 
     if (field === 'endTime' && index < updatedEntries.length - 1) {
       updatedEntries[index + 1].startTime = value;
+      updatedEntries[index + 1].isSaved = false;
     }
     if (field === 'startTime' && index > 0) {
       updatedEntries[index - 1].endTime = value;
+      updatedEntries[index - 1].isSaved = false;
     }
     
     setEntries(updatedEntries);
@@ -152,55 +274,100 @@ const DailyTimeRegister = () => {
           subproject: '',
           subsubproject: '',
           description: '',
-          isRest: false
+          isRest: false,
+          isSaved: false // Needs manual save
       };
       setEntries([...entries, newRow]);
   };
 
-  const handleDeleteRow = (idToDelete) => {
-      setEntries(entries.filter(entry => entry.id !== idToDelete));
+  const handleDeleteRow = async (idToDelete) => {
+    const entryToDelete = entries.find(e => e.id === idToDelete);
+    if (!entryToDelete) return;
+
+    if (window.confirm("آیا از حذف این رکورد اطمینان دارید؟")) {
+      setIsSaving(true);
+      try {
+        // If it was already saved on server, delete it via API
+        if (entryToDelete.isSaved || lastSavedEntriesRef.current.find(e => e.id === idToDelete)) {
+            await deleteEntryApi(entryToDelete);
+        }
+        
+        const updatedEntries = entries.filter(e => e.id !== idToDelete);
+        setEntries(updatedEntries);
+        lastSavedEntriesRef.current = lastSavedEntriesRef.current.filter(e => e.id !== idToDelete);
+      } catch (error) {
+        console.error("خطا در حذف رکورد:", error);
+        alert("حذف رکورد از سرور با شکست مواجه شد.");
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+
+  // --- Manual Sync (For Edits and newly Added manual rows) ---
+  const syncEntriesToServer = async () => {
+    let anyChangesSaved = false;
+    const updatedEntries = [...entries];
+    const updatedSavedEntries = [...lastSavedEntriesRef.current];
+
+    for (let i = 0; i < updatedEntries.length; i++) {
+      const entry = updatedEntries[i];
+      if (!entry.startTime) continue;
+
+      if (!entry.isSaved) {
+        try {
+          const savedIndex = updatedSavedEntries.findIndex(e => e.id === entry.id);
+          
+          if (savedIndex >= 0) {
+            // It's an UPDATE
+            const originalEntry = updatedSavedEntries[savedIndex];
+            await updateEntryApi(originalEntry, entry);
+            updatedSavedEntries[savedIndex] = { ...entry, isSaved: true };
+          } else {
+            // It's a CREATE
+            await createEntryApi(entry);
+            updatedSavedEntries.push({ ...entry, isSaved: true });
+          }
+          
+          updatedEntries[i].isSaved = true;
+          anyChangesSaved = true;
+        } catch (error) {
+          console.error(`خطا در ذخیره رکورد ${entry.id}:`, error);
+        }
+      }
+    }
+
+    if (anyChangesSaved) {
+      lastSavedEntriesRef.current = updatedSavedEntries;
+      setEntries(updatedEntries); 
+    }
   };
 
   const handleSubmitToServer = async () => {
-    const apiDate = selectedDate.convert('gregorian').format('YYYY-MM-DD');
-    const workEntries = entries.filter(e => e.endTime && e.startTime && !e.isRest);
-
-    try {
-      for (const entry of workEntries) {
-        const payload = {
-          date_: apiDate,
-          start_time: entry.startTime,
-          end_time: entry.endTime,
-          type: 'normal',
-          deduction_hours: 'PT0S',
-          description: `دپارتمان: ${entry.department} | پروژه: ${entry.project} | زیرپروژه: ${entry.subproject} | زیرزیرپروژه: ${entry.subsubproject} | توضیحات: ${entry.description}`
-        };
-        console.log("Sending to server: ", payload);
-      }
-      alert('اطلاعات با موفقیت ثبت شد');
-    } catch (error) {
-      console.error('Error saving entries:', error);
-      alert('خطا در ثبت اطلاعات');
-    }
+    setIsSaving(true);
+    await syncEntriesToServer();
+    setIsSaving(false);
+    alert('تغییرات با موفقیت در سرور ذخیره شد.');
   };
 
   const currentEntry = entries[entries.length - 1];
   const isResting = currentEntry?.isRest && !currentEntry?.endTime;
   const isToday = selectedDate.format() === today.format();
   
-  // شرط نمایش دکمه حذف و افزودن ردیف جدید:
-  // یا امروز نیست، یا اگر امروز است کاربر روی دکمه "پایان" کلیک کرده باشد (!isWorking)
   const allowRowEdits = !isToday || (!isWorking && entries.length > 0);
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md border border-gray-100 min-h-[500px]" dir="rtl">
       <div className="flex justify-between items-center mb-6 border-b pb-4">
-        <h2 className="text-xl font-bold text-indigo-700">ثبت کارکرد روزانه</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-indigo-700">ثبت کارکرد روزانه</h2>
+        </div>
         <button 
           onClick={handleSubmitToServer}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+          disabled={isSaving}
+          className={`${isSaving ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'} text-white px-4 py-2 rounded-lg transition shadow-md`}
         >
-          ذخیره تغییرات
+          {isSaving ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
         </button>
       </div>
 
@@ -218,25 +385,25 @@ const DailyTimeRegister = () => {
       {isToday && (
           <div className="mb-6 flex gap-4 justify-center">
             {!isWorking && !isResting && entries.length === 0 && (
-              <button onClick={handleStart} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
+              <button onClick={handleStart} disabled={isSaving} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 shadow-md">
                 شروع کار
               </button>
             )}
             {isWorking && !isResting && (
               <>
-                <button onClick={() => handleAction('end')} className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600">
+                <button onClick={() => handleAction('end')} disabled={isSaving} className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 shadow-md">
                   پایان کار
                 </button>
-                <button onClick={() => handleAction('rest')} className="bg-yellow-500 text-white px-6 py-2 rounded-lg hover:bg-yellow-600">
+                <button onClick={() => handleAction('rest')} disabled={isSaving} className="bg-yellow-500 text-white px-6 py-2 rounded-lg hover:bg-yellow-600 disabled:opacity-50 shadow-md">
                   استراحت
                 </button>
-                <button onClick={() => handleAction('change')} className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">
+                <button onClick={() => handleAction('change')} disabled={isSaving} className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-md">
                   تغییر موضوع
                 </button>
               </>
             )}
             {isResting && (
-              <button onClick={() => handleAction('change')} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">
+              <button onClick={() => handleAction('change')} disabled={isSaving} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 shadow-md">
                 پایان استراحت
               </button>
             )}
@@ -255,12 +422,13 @@ const DailyTimeRegister = () => {
               <th className="px-4 py-3">زیرزیرپروژه</th>
               <th className="px-4 py-3">توضیحات</th>
               {allowRowEdits && <th className="px-4 py-3">عملیات</th>}
+              <th className="px-2 py-3">وضعیت</th>
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
               <tr>
-                <td colSpan={allowRowEdits ? 8 : 7} className="py-8 text-gray-400">اطلاعاتی برای این تاریخ ثبت نشده است.</td>
+                <td colSpan={allowRowEdits ? 9 : 8} className="py-8 text-gray-400">اطلاعاتی برای این تاریخ ثبت نشده است.</td>
               </tr>
             ) : (
               entries.map((entry, index) => (
@@ -301,6 +469,14 @@ const DailyTimeRegister = () => {
                       <button onClick={() => handleDeleteRow(entry.id)} className="text-red-500 hover:text-red-700 font-bold">حذف</button>
                     </td>
                   )}
+                  
+                  <td className="px-2 py-3 text-center">
+                    {!entry.isRest && entry.startTime && (
+                      entry.isSaved ? 
+                        <span className="text-green-500 font-bold text-lg" title="ذخیره شده در سرور">✔</span> : 
+                        <span className="text-gray-400 text-xs" title="نیاز به ذخیره">⏳</span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
@@ -311,7 +487,7 @@ const DailyTimeRegister = () => {
                 <td colSpan={allowRowEdits ? 7 : 6} className="px-4 py-4 text-right font-bold text-indigo-800">
                   مجموع ساعات کاری مفید (بدون استراحت):
                 </td>
-                <td className="px-4 py-4 text-center font-bold text-xl text-indigo-700" dir="ltr">
+                <td colSpan={2} className="px-4 py-4 text-center font-bold text-xl text-indigo-700" dir="ltr">
                   {totalWorkTime}
                 </td>
               </tr>

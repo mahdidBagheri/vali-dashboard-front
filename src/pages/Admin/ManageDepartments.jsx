@@ -16,7 +16,8 @@ const ManageDepartments = () => {
     const fetchDepartments = async () => {
         setIsFetching(true);
         try {
-            const response = await api.get('/api/v1/admin/get-all-departments');
+            // به‌روزرسانی مسیر API
+            const response = await api.get('/api/v1/department/get-all-departments');
             setDepartments(response.data);
         } catch (error) {
             console.error("Error fetching departments:", error);
@@ -43,7 +44,8 @@ const ManageDepartments = () => {
                 description: description || ""
             };
             
-            await api.post('/api/v1/admin/create-department', payload);
+            // به‌روزرسانی مسیر API
+            await api.post('/api/v1/department/create-department', payload);
             
             setMessage({ type: 'success', text: 'دپارتمان با موفقیت اضافه شد.' });
             setDepartmentName('');
@@ -61,6 +63,29 @@ const ManageDepartments = () => {
             setMessage({ type: 'error', text: errorDetail || 'خطا در افزودن دپارتمان.' });
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // تابع حذف دپارتمان (جدید)
+    const handleDeleteDepartment = async (id) => {
+        if (!window.confirm("آیا از حذف این دپارتمان اطمینان دارید؟")) {
+            return;
+        }
+        
+        setMessage(null);
+        try {
+            await api.delete(`/api/v1/department/delete-department/${id}`);
+            setMessage({ type: 'success', text: 'دپارتمان با موفقیت حذف شد.' });
+            
+            // بروزرسانی لیست
+            fetchDepartments();
+        } catch (error) {
+            console.error("Error deleting department:", error);
+            let errorDetail = error.response?.data?.detail;
+            if (typeof errorDetail !== 'string') {
+                errorDetail = JSON.stringify(errorDetail);
+            }
+            setMessage({ type: 'error', text: errorDetail || 'خطا در حذف دپارتمان.' });
         }
     };
 
@@ -117,13 +142,22 @@ const ManageDepartments = () => {
                     <div className="text-center py-4 text-gray-500">در حال دریافت اطلاعات...</div>
                 ) : departments.length > 0 ? (
                     <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                        {departments.map((dept, index) => (
-                            <div key={index} className="border p-4 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+                        {departments.map((dept) => (
+                            <div key={dept.id} className="border p-4 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
                                 <div className="flex justify-between items-start mb-2">
                                     <h4 className="font-bold text-lg text-gray-800">{dept.name}</h4>
-                                    <span className={`text-xs px-2 py-1 rounded-full ${dept.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                        {dept.is_active ? 'فعال' : 'غیرفعال'}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-xs px-2 py-1 rounded-full ${dept.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                            {dept.is_active ? 'فعال' : 'غیرفعال'}
+                                        </span>
+                                        <button 
+                                            onClick={() => handleDeleteDepartment(dept.id)}
+                                            className="text-xs px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                            title="حذف دپارتمان"
+                                        >
+                                            حذف
+                                        </button>
+                                    </div>
                                 </div>
                                 {dept.description && (
                                     <p className="text-sm text-gray-600 mb-3">{dept.description}</p>

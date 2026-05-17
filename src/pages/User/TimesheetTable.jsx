@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-// --- Jalali Helper Functions ---
+// --- توابع کمکی تقویم جلالی ---
 const JALALI_MONTHS = [
   "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
   "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
 ];
 
-// Calculate days in a Jalali month (handles leap years based on the 33-year cycle)
 const getDaysInJalaliMonth = (year, month) => {
   if (month >= 1 && month <= 6) return 31;
   if (month >= 7 && month <= 11) return 30;
@@ -14,19 +13,14 @@ const getDaysInJalaliMonth = (year, month) => {
   return isLeap ? 30 : 29;
 };
 
-// Calculate Time Difference
+// محاسبه اختلاف زمان
 const calculateNetTime = (start, stop, breakMinutes) => {
   if (!start || !stop) return '00:00';
-  
   const [startH, startM] = start.split(':').map(Number);
   const [stopH, stopM] = stop.split(':').map(Number);
-  
   let totalMinutes = (stopH * 60 + stopM) - (startH * 60 + startM);
   
-  // If stop time is past midnight (e.g., start 22:00, stop 06:00)
   if (totalMinutes < 0) totalMinutes += 24 * 60; 
-  
-  // Subtract break time
   totalMinutes -= (Number(breakMinutes) || 0);
 
   if (totalMinutes <= 0) return '00:00';
@@ -37,134 +31,131 @@ const calculateNetTime = (start, stop, breakMinutes) => {
 };
 
 export default function TimesheetTable() {
-  // Default to today's Jalali Date: 1405/02 (Ordibehesht)
   const [year, setYear] = useState(1405);
   const [month, setMonth] = useState(2); 
   const [tableData, setTableData] = useState([]);
+  
+  const [showDept, setShowDept] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const tableRef = useRef(null);
 
-  // Generate table rows when Year or Month changes
   useEffect(() => {
     const daysCount = getDaysInJalaliMonth(year, month);
-    const newData = [];
-    
-    for (let day = 1; day <= daysCount; day++) {
-      newData.push({
-        dayIndex: day,
-        dateString: `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`,
-        start: '',
-        stop: '',
-        breakMin: 0,
-        netHours: '00:00'
-      });
-    }
+    const newData = Array.from({ length: daysCount }, (_, i) => ({
+      dayIndex: i + 1,
+      dateString: `${year}/${String(month).padStart(2, '0')}/${String(i + 1).padStart(2, '0')}`,
+      department: '',
+      start: '',
+      stop: '',
+      breakMin: 0,
+      netHours: '00:00'
+    }));
     setTableData(newData);
   }, [year, month]);
 
-  // Handle Input Changes
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (tableRef.current && !tableRef.current.contains(e.target)) setIsExpanded(false);
+    };
+    if (isExpanded) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isExpanded]);
+
   const handleInputChange = (index, field, value) => {
-    const updatedData = [...tableData];
-    updatedData[index][field] = value;
-    
-    // Auto-calculate net hours on any change
-    updatedData[index].netHours = calculateNetTime(
-      updatedData[index].start,
-      updatedData[index].stop,
-      updatedData[index].breakMin
+    const updated = [...tableData];
+    updated[index][field] = value;
+    updated[index].netHours = calculateNetTime(
+      updated[index].start, updated[index].stop, updated[index].breakMin
     );
-    
-    setTableData(updatedData);
+    setTableData(updated);
   };
 
-  return (
-    <div dir="rtl" className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
-      <div className="bg-white rounded-xl shadow-md overflow-hidden">
-        
-        {/* Header & Controls */}
-        <div className="p-6 bg-indigo-600 text-white flex flex-col sm:flex-row justify-between items-center gap-4">
-          <h2 className="text-2xl font-bold">تایم‌شیت ماهانه</h2>
-          
-          <div className="flex gap-4 items-center">
-            <select 
-              value={month} 
-              onChange={(e) => setMonth(Number(e.target.value))}
-              className="px-4 py-2 rounded bg-indigo-700 border-none text-white focus:ring-2 focus:ring-white outline-none cursor-pointer"
-            >
-              {JALALI_MONTHS.map((m, i) => (
-                <option key={m} value={i + 1}>{m}</option>
-              ))}
-            </select>
+  const wrapperClasses = isExpanded 
+    ? "fixed inset-0 z-50 bg-gray-900/90 flex items-center justify-center p-0"
+    : "relative w-full max-w-6xl mx-auto my-2 p-0 sm:p-4";
 
-            <input 
-              type="number" 
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="w-24 px-4 py-2 rounded bg-indigo-700 border-none text-white focus:ring-2 focus:ring-white outline-none text-center"
-            />
+  const tableClasses = isExpanded
+    ? "bg-white w-full h-full sm:h-auto sm:max-h-[95vh] flex flex-col overflow-hidden"
+    : "bg-white rounded shadow flex flex-col overflow-hidden border border-gray-300";
+
+  // کلاس به شدت فشرده برای جلوگیری از به هم ریختگی در حالت فوکوس
+  const timeInputClasses = "w-[38px] min-w-[38px] max-w-[38px] bg-transparent p-0 m-0 h-5 outline-none focus:bg-indigo-50 text-center text-[10px] tracking-tighter leading-none appearance-none block mx-auto " + 
+    "[&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-clear-button]:hidden [&::-webkit-inner-spin-button]:hidden " + 
+    "[&::-webkit-datetime-edit-ampm-field]:hidden [&::-webkit-datetime-edit-ampm-field]:w-0 " + 
+    "[&::-webkit-datetime-edit]:p-0 [&::-webkit-datetime-edit-fields-wrapper]:p-0";
+
+  return (
+    <div dir="rtl" className={wrapperClasses}>
+      <div ref={tableRef} onClick={() => !isExpanded && setIsExpanded(true)} className={tableClasses}>
+        
+        {/* هدر */}
+        <div className="p-1 bg-indigo-700 text-white flex justify-between items-center shrink-0">
+          <h2 className="text-[11px] sm:text-sm font-bold flex items-center gap-1">
+            تایم‌شیت {isExpanded && <span className="bg-indigo-500 px-1 rounded animate-pulse">زوم</span>}
+          </h2>
+          <div className="flex gap-1 text-[10px]">
+            <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="p-0.5 rounded bg-indigo-800 text-white outline-none border-none">
+              {JALALI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+            <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-9 p-0.5 rounded bg-indigo-800 text-white outline-none border-none text-center" />
           </div>
         </div>
 
-        {/* Timesheet Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-right text-gray-700">
-            <thead className="text-xs text-gray-700 uppercase bg-gray-100">
+        {/* بدنه */}
+        <div className="overflow-x-auto overflow-y-auto flex-1 bg-gray-50">
+          <table className="w-full text-center table-fixed border-collapse">
+            <thead className="bg-gray-200 uppercase sticky top-0 z-10 text-[9px] text-gray-700 font-bold shadow-sm">
               <tr>
-                <th className="px-6 py-4">تاریخ</th>
-                <th className="px-6 py-4">زمان شروع</th>
-                <th className="px-6 py-4">زمان پایان</th>
-                <th className="px-6 py-4">استراحت (دقیقه)</th>
-                <th className="px-6 py-4">کارکرد خالص</th>
+                <th className="p-0 border-b border-gray-300 w-8">
+                  <div className="flex items-center justify-between px-0.5">
+                    روز
+                    <button onClick={(e) => { e.stopPropagation(); setShowDept(!showDept); }} className="bg-indigo-500 text-white rounded w-3 h-3 flex items-center justify-center leading-none">
+                      {showDept ? '-' : '+'}
+                    </button>
+                  </div>
+                </th>
+                {showDept && <th className="p-0 border-b border-gray-300 w-12">بخش</th>}
+                <th className="p-0 border-b border-gray-300 w-[40px] max-w-[40px]">شروع</th>
+                <th className="p-0 border-b border-gray-300 w-[40px] max-w-[40px]">پایان</th>
+                <th className="p-0 border-b border-gray-300 w-8 leading-[10px]">استراحت</th>
+                <th className="p-0 border-b border-gray-300 w-9">خالص</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="text-[10px]">
               {tableData.map((row, index) => (
-                <tr key={row.dateString} className="border-b hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap">
-                    {row.dateString}
+                <tr key={row.dateString} className="border-b border-gray-100 hover:bg-indigo-50 bg-white">
+                  <td className="p-0 font-bold text-gray-800 bg-gray-100/50">{row.dayIndex}</td>
+                  
+                  {showDept && (
+                    <td className="p-0 border-r border-gray-100 overflow-hidden">
+                      <input type="text" value={row.department} onChange={(e) => handleInputChange(index, 'department', e.target.value)} className="w-full bg-transparent outline-none text-center p-0 h-5 text-[9px]" />
+                    </td>
+                  )}
+                  
+                  <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[40px] w-[40px]">
+                    <input type="time" value={row.start} onChange={(e) => handleInputChange(index, 'start', e.target.value)} className={timeInputClasses} />
                   </td>
-                  <td className="px-6 py-3">
-                    <input 
-                      type="time" 
-                      value={row.start}
-                      onChange={(e) => handleInputChange(index, 'start', e.target.value)}
-                      className="border border-gray-300 rounded px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none w-full"
-                    />
+                  
+                  <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[40px] w-[40px]">
+                    <input type="time" value={row.stop} onChange={(e) => handleInputChange(index, 'stop', e.target.value)} className={timeInputClasses} />
                   </td>
-                  <td className="px-6 py-3">
-                    <input 
-                      type="time" 
-                      value={row.stop}
-                      onChange={(e) => handleInputChange(index, 'stop', e.target.value)}
-                      className="border border-gray-300 rounded px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none w-full"
-                    />
+                  
+                  <td className="p-0 border-r border-gray-100 overflow-hidden">
+                    <input type="number" min="0" value={row.breakMin || ''} onChange={(e) => handleInputChange(index, 'breakMin', e.target.value)} className="w-full bg-transparent p-0 h-5 outline-none text-center appearance-none [&::-webkit-inner-spin-button]:hidden text-[10px]" />
                   </td>
-                  <td className="px-6 py-3">
-                    <input 
-                      type="number" 
-                      min="0"
-                      value={row.breakMin}
-                      onChange={(e) => handleInputChange(index, 'breakMin', e.target.value)}
-                      className="border border-gray-300 rounded px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none w-full max-w-[100px]"
-                    />
-                  </td>
-                  <td className="px-6 py-3 text-lg font-bold text-indigo-700 dir-ltr text-right">
-                    {row.netHours}
-                  </td>
+                  
+                  <td className="p-0 border-r border-gray-100 font-bold text-indigo-600 tracking-tighter" dir="ltr">{row.netHours}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-6 bg-gray-50 border-t flex justify-end">
-          <button 
-            onClick={() => console.log("Submitting Data:", tableData)}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition-colors"
-          >
-            ذخیره تایم‌شیت
-          </button>
+        {/* فوتر */}
+        <div className="p-1 bg-gray-200 flex justify-between items-center shrink-0">
+          <span className="text-[8px] text-gray-500">{isExpanded ? 'خروج: لمس حاشیه' : 'لمس جدول = زوم'}</span>
+          <button className="px-2 py-0.5 bg-indigo-600 text-white text-[9px] rounded font-medium">ذخیره</button>
         </div>
-
       </div>
     </div>
   );

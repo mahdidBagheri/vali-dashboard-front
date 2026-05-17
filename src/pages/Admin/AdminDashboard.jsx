@@ -4,6 +4,8 @@ import { AuthContext } from '../../context/AuthContext';
 import AddUserForm from './AddUserForm';
 import ManageDepartments from './ManageDepartments';
 import ManageProjects from './ManageProjects';
+// 1. IMPORT THE NEW COMPONENT
+import AdminUserManagement from './AdminUserManagement'; // Make sure this path is correct
 
 const AdminDashboard = () => {
     const [activeTab, setActiveTab] = useState('addUser');
@@ -89,9 +91,10 @@ const AdminDashboard = () => {
                 {/* Content Area */}
                 <main className="flex-1 p-6 overflow-y-auto">
                     {activeTab === 'addUser' && <AddUserForm />}
-                    {activeTab === 'manageUsers' && (
-                        <div className="text-gray-600 text-right">در حال توسعه...</div>
-                    )}
+                    
+                    {/* 2. REPLACE THE PLACEHOLDER DIV WITH THE COMPONENT */}
+                    {activeTab === 'manageUsers' && <AdminUserManagement />}
+
                     {activeTab === 'manageDepartments' && <ManageDepartments />}
                     {activeTab === 'manageProjects' && <ManageProjects />}
                 </main>
