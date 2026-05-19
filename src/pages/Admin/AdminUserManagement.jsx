@@ -31,7 +31,6 @@ const AdminUserManagement = () => {
   const handleDeleteUser = async (phoneNumber, userName) => {
     if (window.confirm(`آیا از حذف کاربر «${userName}» اطمینان دارید؟`)) {
       try {
-        // CORRECTED: Sending phone_number as a URL query parameter
         await api.delete('/api/v1/user/delete-user', {
           params: { phone_number: phoneNumber }
         });
@@ -63,7 +62,7 @@ const AdminUserManagement = () => {
     if (filteredUsers.length === 0) {
       return (
         <tr>
-          <td colSpan="5" className="p-6 text-center text-gray-500">
+          <td colSpan="7" className="p-6 text-center text-gray-500">
             کاربری یافت نشد.
           </td>
         </tr>
@@ -77,7 +76,28 @@ const AdminUserManagement = () => {
         </td>
         <td className="px-6 py-4">{user.phone_number || '---'}</td>
         <td className="px-6 py-4">{user.role || '---'}</td>
-        <td className="px-6 py-4">{user.departments?.join(', ') || '---'}</td>
+        
+        {/* Updated to map through department objects */}
+        <td className="px-6 py-4">
+          {user.departments?.length > 0 
+            ? user.departments.map(d => d.name).join(', ') 
+            : '---'}
+        </td>
+
+        {/* Added supervisors display */}
+        <td className="px-6 py-4 text-xs">
+          {user.supervisors?.length > 0 
+            ? user.supervisors.map(s => `${s.name} ${s.surname}`).join(', ') 
+            : '---'}
+        </td>
+
+        {/* Added subordinates display */}
+        <td className="px-6 py-4 text-xs">
+          {user.subordinates?.length > 0 
+            ? user.subordinates.map(s => `${s.name} ${s.surname}`).join(', ') 
+            : '---'}
+        </td>
+
         <td className="px-6 py-4 text-center">
           <button 
             onClick={() => handleDeleteUser(user.phone_number, `${user.name} ${user.surname}`)} 
@@ -123,6 +143,8 @@ const AdminUserManagement = () => {
                     <th scope="col" className="px-6 py-3">شماره تلفن</th>
                     <th scope="col" className="px-6 py-3">نقش</th>
                     <th scope="col" className="px-6 py-3">دپارتمان‌ها</th>
+                    <th scope="col" className="px-6 py-3">سرپرست‌ها</th>
+                    <th scope="col" className="px-6 py-3">زیردست‌ها</th>
                     <th scope="col" className="px-6 py-3 text-center">عملیات</th>
                   </tr>
                 </thead>

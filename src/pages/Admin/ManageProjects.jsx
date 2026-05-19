@@ -14,7 +14,6 @@ const getErrorMessage = (error) => {
   return 'An unexpected error occurred. Please try again.';
 };
 
-
 const ManageProjects = () => {
     // State for the complete data tree
     const [departments, setDepartments] = useState([]);
@@ -108,8 +107,9 @@ const ManageProjects = () => {
         e.preventDefault();
         setIsLoading(true);
         try {
+            // اصلاح نام کلید به sub_project1_id طبق ساختار بک‌اند
             const payload = {
-                subproject_id: parseInt(selectedSub1Id, 10),
+                sub_project1_id: parseInt(selectedSub1Id, 10),
                 name: subproject2Name,
                 description: subproject2Desc,
             };

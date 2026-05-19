@@ -33,9 +33,9 @@ const DailyTimeRegister = () => {
     }
   }, [entries, isWorking, selectedDate, today]);
 
-  const getCurrentTime = () => {
+  const getCurrentISOTime = () => {
     const now = new Date();
-    return now.toTimeString().slice(0, 5);
+    return now.toISOString().split('T')[1]; 
   };
 
   const calculateTotalTime = (data) => {
@@ -83,17 +83,13 @@ const DailyTimeRegister = () => {
       handleDateChange(today);
   };
 
-  // --- Utility & API Helpers ---
-
-  // تابع کمکی برای تبدیل اعداد فارسی به انگلیسی (برای اطمینان از فرمت استاندارد)
   const toEnglishDigits = (str) => {
     return str ? str.toString().replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)) : "";
   };
 
-  // تبدیل تاریخ انتخابی به فرمت استاندارد میلادی (YYYY-MM-DD) با اعداد انگلیسی
   const getApiDate = () => {
     if (selectedDate && typeof selectedDate.toDate === 'function') {
-      const jsDate = selectedDate.toDate(); // تبدیل به Date استاندارد جاوااسکریپت که میلادی است
+      const jsDate = selectedDate.toDate(); 
       const year = jsDate.getFullYear();
       const month = String(jsDate.getMonth() + 1).padStart(2, '0');
       const day = String(jsDate.getDate()).padStart(2, '0');
@@ -102,78 +98,59 @@ const DailyTimeRegister = () => {
     return toEnglishDigits(selectedDate);
   };
 
-  const formatTime = (timeStr) => {
-    if (!timeStr) return "00:00:00";
-    let engTime = toEnglishDigits(timeStr);
-    return engTime.length === 5 ? `${engTime}:00` : engTime;
+  const createEntryApi = async (dateStr, startTimeZ) => {
+    const payload = {
+      date_: dateStr,
+      start_time: startTimeZ
+    };
+    const response = await api.post('/api/v1/timesheet/create-timesheet-entry', payload);
+    return response.data; 
   };
 
-  const buildDescription = (entry) => {
-    if (entry.isRest) return "زمان استراحت";
-    return `دپارتمان: ${entry.department || ''} | پروژه: ${entry.project || ''} | زیرپروژه: ${entry.subproject || ''} | زیرزیرپروژه: ${entry.subsubproject || ''} | توضیحات: ${entry.description || ''}`;
-  };
-
-  const createEntryApi = async (entry) => {
+  const updateEntryApi = async (entry) => {
     const payload = {
       date_: getApiDate(),
-      start_time: formatTime(entry.startTime),
-      end_time: formatTime(entry.endTime || entry.startTime),
+      start_time: entry.startTime ? `${entry.startTime}:00.000Z` : "00:00:00.000Z",
+      end_time: entry.endTime ? `${entry.endTime}:00.000Z` : "00:00:00.000Z",
       deduction_hours: "PT0S",
       type: entry.isRest ? "rest" : "normal",
-      description: buildDescription(entry),
-      project_name: entry.project || ""
+      // حتماً عدد ارسال شود، اما مقدار پیش‌فرض 0 خواهد بود. 
+      // وظیفه ما در کلاینت این است که نگذاریم تابع به اینجا برسد اگر دپارتمان خالی است.
+      department_id: Number(entry.department_id) || 0,
+      project_id: Number(entry.project_id) || 0,
+      sub_project1_id: Number(entry.sub_project1_id) || 0,
+      sub_project2_id: Number(entry.sub_project2_id) || 0,
+      description: entry.description || ""
     };
-    return api.post('/api/v1/timesheet/create-timesheet-entry', payload);
+    return api.put(`/api/v1/timesheet/update-timesheet-entry/${entry.id}`, payload);
   };
 
-  const updateEntryApi = async (originalEntry, newEntry) => {
-    const payload = {
-      input_date_time: {
-        date_: getApiDate(),
-        start_time: formatTime(originalEntry.startTime),
-        end_time: formatTime(originalEntry.endTime || originalEntry.startTime)
-      },
-      timesheet_data: {
-        date_: getApiDate(),
-        start_time: formatTime(newEntry.startTime),
-        end_time: formatTime(newEntry.endTime || newEntry.startTime),
-        deduction_hours: "PT0S",
-        type: newEntry.isRest ? "rest" : "normal",
-        description: buildDescription(newEntry),
-        project_name: newEntry.project || ""
-      }
-    };
-    return api.put('/api/v1/timesheet/update-timesheet-entry', payload);
+  const deleteEntryApi = async (id) => {
+    return api.delete(`/api/v1/timesheet/delete-timesheet-entry/${id}`);
   };
 
-  const deleteEntryApi = async (entry) => {
-    const payload = {
-      date_: getApiDate(),
-      start_time: formatTime(entry.startTime),
-      end_time: formatTime(entry.endTime || entry.startTime)
-    };
-    return api.delete('/api/v1/timesheet/delete-timesheet-entry', { data: payload });
-  };
-
-
-  // --- Action Buttons (Direct Server Sync) ---
   const handleStart = async () => {
     setIsSaving(true);
-    const newEntry = {
-      id: Date.now(),
-      startTime: getCurrentTime(),
-      endTime: '',
-      department: '',
-      project: '',
-      subproject: '',
-      subsubproject: '',
-      description: '',
-      isRest: false,
-      isSaved: true
-    };
-    
     try {
-      await createEntryApi(newEntry);
+      const apiDate = getApiDate();
+      const timeZ = getCurrentISOTime();
+      
+      const serverData = await createEntryApi(apiDate, timeZ);
+      const startTimeLocal = serverData.start_time.substring(0, 5);
+      
+      const newEntry = {
+        id: serverData.id,
+        startTime: startTimeLocal,
+        endTime: '',
+        department_id: '',
+        project_id: '',
+        sub_project1_id: '',
+        sub_project2_id: '',
+        description: '',
+        isRest: false,
+        isSaved: true 
+      };
+      
       setEntries([...entries, newEntry]);
       setIsWorking(true);
       lastSavedEntriesRef.current.push({ ...newEntry });
@@ -186,21 +163,28 @@ const DailyTimeRegister = () => {
   };
 
   const handleAction = async (actionType) => {
-    setIsSaving(true);
-    const currentTime = getCurrentTime();
     let updatedEntries = [...entries];
     const lastIndex = updatedEntries.length - 1;
     const lastEntry = updatedEntries[lastIndex];
+
+    // --- اعتبارسنجی (Validation) اجباری بودن دپارتمان قبل از تغییر وضعیت ---
+    if (lastIndex >= 0 && !lastEntry.endTime && !lastEntry.isRest) {
+      const depId = Number(lastEntry.department_id);
+      if (!depId || depId <= 0) {
+        alert("لطفاً پیش از ثبت عملیات جدید، حتماً «شناسه دپارتمان» رکورد فعلی را وارد کنید.");
+        return; // توقف عملیات
+      }
+    }
+
+    setIsSaving(true);
     let updatedSavedEntries = [...lastSavedEntriesRef.current];
 
     try {
-      // 1. Close the previous active entry
       if (lastIndex >= 0 && !lastEntry.endTime) {
-        const originalLastEntry = updatedSavedEntries.find(e => e.id === lastEntry.id) || lastEntry;
-        const closedEntry = { ...lastEntry, endTime: currentTime };
+        const timeNowStr = new Date().toTimeString().slice(0, 5);
+        const closedEntry = { ...lastEntry, endTime: timeNowStr };
 
-        // Save the closed end_time directly
-        await updateEntryApi(originalLastEntry, closedEntry);
+        await updateEntryApi(closedEntry);
         
         updatedEntries[lastIndex] = closedEntry;
         closedEntry.isSaved = true;
@@ -209,26 +193,28 @@ const DailyTimeRegister = () => {
         if (savedIndex >= 0) updatedSavedEntries[savedIndex] = { ...closedEntry };
       }
 
-      // 2. Start new action if not 'end'
       if (actionType === 'end') {
         setIsWorking(false);
         setEntries(updatedEntries);
         lastSavedEntriesRef.current = updatedSavedEntries;
       } else if (actionType === 'rest' || actionType === 'change') {
+        
+        const apiDate = getApiDate();
+        const timeZ = getCurrentISOTime();
+        const serverData = await createEntryApi(apiDate, timeZ);
+
         const newEntry = {
-          id: Date.now(),
-          startTime: currentTime,
+          id: serverData.id,
+          startTime: serverData.start_time.substring(0, 5),
           endTime: '',
-          department: actionType === 'change' ? lastEntry.department : '',
-          project: actionType === 'change' ? lastEntry.project : '',
-          subproject: actionType === 'change' ? lastEntry.subproject : '',
-          subsubproject: actionType === 'change' ? lastEntry.subsubproject : '',
+          department_id: actionType === 'change' ? lastEntry.department_id : '',
+          project_id: actionType === 'change' ? lastEntry.project_id : '',
+          sub_project1_id: actionType === 'change' ? lastEntry.sub_project1_id : '',
+          sub_project2_id: actionType === 'change' ? lastEntry.sub_project2_id : '',
           description: actionType === 'change' ? lastEntry.description : '',
           isRest: actionType === 'rest',
-          isSaved: true 
+          isSaved: actionType === 'change' ? false : true 
         };
-
-        await createEntryApi(newEntry);
 
         updatedEntries.push(newEntry);
         updatedSavedEntries.push({ ...newEntry });
@@ -243,13 +229,10 @@ const DailyTimeRegister = () => {
     }
   };
 
-
-  // --- Inline Table Edits ---
   const handleFieldEdit = (index, field, value) => {
     const updatedEntries = [...entries];
     updatedEntries[index][field] = value;
     
-    // Mark as unsaved to be picked up by the manual "Save" button
     updatedEntries[index].isSaved = false;
 
     if (field === 'endTime' && index < updatedEntries.length - 1) {
@@ -266,16 +249,16 @@ const DailyTimeRegister = () => {
 
   const handleAddRow = () => {
       const newRow = {
-          id: Date.now(),
+          id: `temp-${Date.now()}`,
           startTime: '00:00',
           endTime: '00:00',
-          department: '',
-          project: '',
-          subproject: '',
-          subsubproject: '',
+          department_id: '',
+          project_id: '',
+          sub_project1_id: '',
+          sub_project2_id: '',
           description: '',
           isRest: false,
-          isSaved: false // Needs manual save
+          isSaved: false
       };
       setEntries([...entries, newRow]);
   };
@@ -287,9 +270,8 @@ const DailyTimeRegister = () => {
     if (window.confirm("آیا از حذف این رکورد اطمینان دارید؟")) {
       setIsSaving(true);
       try {
-        // If it was already saved on server, delete it via API
-        if (entryToDelete.isSaved || lastSavedEntriesRef.current.find(e => e.id === idToDelete)) {
-            await deleteEntryApi(entryToDelete);
+        if (typeof idToDelete === 'number' || !String(idToDelete).startsWith('temp-')) {
+            await deleteEntryApi(idToDelete);
         }
         
         const updatedEntries = entries.filter(e => e.id !== idToDelete);
@@ -304,30 +286,35 @@ const DailyTimeRegister = () => {
     }
   };
 
-  // --- Manual Sync (For Edits and newly Added manual rows) ---
   const syncEntriesToServer = async () => {
     let anyChangesSaved = false;
+    let hasValidationError = false;
     const updatedEntries = [...entries];
-    const updatedSavedEntries = [...lastSavedEntriesRef.current];
 
     for (let i = 0; i < updatedEntries.length; i++) {
       const entry = updatedEntries[i];
       if (!entry.startTime) continue;
 
       if (!entry.isSaved) {
+        
+        // --- اعتبارسنجی دپارتمان قبل از همگام‌سازی ---
+        if (!entry.isRest) {
+            const depId = Number(entry.department_id);
+            if (!depId || depId <= 0) {
+                alert(`خطا: شناسه دپارتمان برای رکورد ساعت ${entry.startTime} وارد نشده است.`);
+                hasValidationError = true;
+                continue; // از ذخیره این رکورد صرف‌نظر می‌کند
+            }
+        }
+
         try {
-          const savedIndex = updatedSavedEntries.findIndex(e => e.id === entry.id);
-          
-          if (savedIndex >= 0) {
-            // It's an UPDATE
-            const originalEntry = updatedSavedEntries[savedIndex];
-            await updateEntryApi(originalEntry, entry);
-            updatedSavedEntries[savedIndex] = { ...entry, isSaved: true };
-          } else {
-            // It's a CREATE
-            await createEntryApi(entry);
-            updatedSavedEntries.push({ ...entry, isSaved: true });
+          if (String(entry.id).startsWith('temp-')) {
+            const timeZ = entry.startTime ? `${entry.startTime}:00.000Z` : "00:00:00.000Z";
+            const serverData = await createEntryApi(getApiDate(), timeZ);
+            entry.id = serverData.id;
           }
+          
+          await updateEntryApi(entry);
           
           updatedEntries[i].isSaved = true;
           anyChangesSaved = true;
@@ -337,17 +324,23 @@ const DailyTimeRegister = () => {
       }
     }
 
-    if (anyChangesSaved) {
-      lastSavedEntriesRef.current = updatedSavedEntries;
+    if (anyChangesSaved || hasValidationError) {
+      lastSavedEntriesRef.current = JSON.parse(JSON.stringify(updatedEntries));
       setEntries(updatedEntries); 
     }
+
+    return !hasValidationError; // اگر ارور داشتیم فالس برگردان
   };
 
   const handleSubmitToServer = async () => {
     setIsSaving(true);
-    await syncEntriesToServer();
+    const success = await syncEntriesToServer();
     setIsSaving(false);
-    alert('تغییرات با موفقیت در سرور ذخیره شد.');
+    if (success) {
+      alert('تغییرات با موفقیت در سرور ذخیره شد.');
+    } else {
+      alert('بخشی از اطلاعات به دلیل نقص فیلدهای اجباری (مثل دپارتمان) ذخیره نشد.');
+    }
   };
 
   const currentEntry = entries[entries.length - 1];
@@ -416,10 +409,10 @@ const DailyTimeRegister = () => {
             <tr>
               <th className="px-4 py-3">شروع</th>
               <th className="px-4 py-3">پایان</th>
-              <th className="px-4 py-3">دپارتمان</th>
-              <th className="px-4 py-3">پروژه</th>
-              <th className="px-4 py-3">زیرپروژه</th>
-              <th className="px-4 py-3">زیرزیرپروژه</th>
+              <th className="px-4 py-3">دپارتمان (ID) *</th>
+              <th className="px-4 py-3">پروژه (ID)</th>
+              <th className="px-4 py-3">زیرپروژه۱ (ID)</th>
+              <th className="px-4 py-3">زیرپروژه۲ (ID)</th>
               <th className="px-4 py-3">توضیحات</th>
               {allowRowEdits && <th className="px-4 py-3">عملیات</th>}
               <th className="px-2 py-3">وضعیت</th>
@@ -447,16 +440,16 @@ const DailyTimeRegister = () => {
                   ) : (
                     <>
                       <td className="px-4 py-3">
-                        <input type="text" value={entry.department || ''} onChange={(e) => handleFieldEdit(index, 'department', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                        <input type="number" required value={entry.department_id || ''} onChange={(e) => handleFieldEdit(index, 'department_id', e.target.value)} className={`bg-transparent outline-none text-center border-b border-dashed ${!entry.department_id && !entry.isSaved ? 'border-red-500 bg-red-50' : 'border-gray-300'} focus:border-indigo-500 w-full`} placeholder="ID..."/>
                       </td>
                       <td className="px-4 py-3">
-                        <input type="text" value={entry.project || ''} onChange={(e) => handleFieldEdit(index, 'project', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                        <input type="number" value={entry.project_id || ''} onChange={(e) => handleFieldEdit(index, 'project_id', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="ID..."/>
                       </td>
                       <td className="px-4 py-3">
-                        <input type="text" value={entry.subproject || ''} onChange={(e) => handleFieldEdit(index, 'subproject', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                        <input type="number" value={entry.sub_project1_id || ''} onChange={(e) => handleFieldEdit(index, 'sub_project1_id', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="ID..."/>
                       </td>
                       <td className="px-4 py-3">
-                        <input type="text" value={entry.subsubproject || ''} onChange={(e) => handleFieldEdit(index, 'subsubproject', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="..."/>
+                        <input type="number" value={entry.sub_project2_id || ''} onChange={(e) => handleFieldEdit(index, 'sub_project2_id', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full" placeholder="ID..."/>
                       </td>
                       <td className="px-4 py-3">
                         <input type="text" value={entry.description || ''} onChange={(e) => handleFieldEdit(index, 'description', e.target.value)} className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full min-w-[120px]" placeholder="..."/>

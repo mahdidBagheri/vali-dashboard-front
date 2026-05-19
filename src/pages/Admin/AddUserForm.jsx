@@ -9,25 +9,32 @@ const AddUserForm = () => {
     phone_number: '', 
     password: '',
     role: 'regular_user', 
-    departments: [], 
-    supervisor_phone_number: ''
+    departments_ids: [], 
+    supervisors_ids: [], 
+    subordinates_ids: [] 
   });
+  
   const [departmentsList, setDepartmentsList] = useState([]);
+  const [usersList, setUsersList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
-  // دریافت لیست دپارتمان‌ها در زمان لود کامپوننت با API جدید
   useEffect(() => {
-    const fetchDepartments = async () => {
+    const fetchData = async () => {
       try {
-        // آدرس جدید API جایگزین شد
-        const response = await api.get('/api/v1/department/get-all-departments');
-        setDepartmentsList(response.data || []);
+        // دریافت همزمان لیست دپارتمان‌ها و لیست کاربران
+        const [deptResponse, usersResponse] = await Promise.all([
+          api.get('/api/v1/department/get-all-departments'),
+          api.get('/api/v1/user/get-all-users')
+        ]);
+        
+        setDepartmentsList(deptResponse.data || []);
+        setUsersList(usersResponse.data || []);
       } catch (error) {
-        console.error("Error fetching departments:", error);
+        console.error("Error fetching data:", error);
       }
     };
-    fetchDepartments();
+    fetchData();
   }, []);
 
   const handleChange = (e) => {
@@ -38,17 +45,18 @@ const AddUserForm = () => {
     }));
   };
 
-  const handleDepartmentChange = (e) => {
-    const options = e.target.options;
-    const selectedDepartments = [];
+  // هندلر مشترک برای تمام فیلدهای چند انتخابی (دپارتمان، سرپرست، زیردست)
+  const handleMultiSelectChange = (e) => {
+    const { name, options } = e.target;
+    const selectedValues = [];
     for (let i = 0; i < options.length; i++) {
       if (options[i].selected) {
-        selectedDepartments.push(options[i].value);
+        selectedValues.push(parseInt(options[i].value, 10));
       }
     }
     setFormData((prev) => ({
       ...prev,
-      departments: selectedDepartments
+      [name]: selectedValues
     }));
   };
 
@@ -57,12 +65,8 @@ const AddUserForm = () => {
     setLoading(true);
     setMessage(null);
 
-    const payload = {
-      ...formData,
-      supervisor_phone_number: formData.supervisor_phone_number
-        ? formData.supervisor_phone_number.split(',').map(item => item.trim())
-        : []
-    };
+    // مقادیر در formData در حال حاضر به صورت آرایه‌ای از اعداد (integer) هستند
+    const payload = { ...formData };
 
     try {
       const response = await api.post('/api/v1/user/create-user', payload);
@@ -75,13 +79,28 @@ const AddUserForm = () => {
         phone_number: '',
         password: '',
         role: 'regular_user',
-        departments: [],
-        supervisor_phone_number: ''
+        departments_ids: [],
+        supervisors_ids: [],
+        subordinates_ids: []
       });
       
     } catch (error) {
       console.error("Error creating user:", error);
-      const errorMessage = error.response?.data?.detail || "خطا در ایجاد کاربر. لطفاً اطلاعات وارد شده را بررسی کنید.";
+      
+      let errorMessage = "خطا در ایجاد کاربر. لطفاً اطلاعات وارد شده را بررسی کنید.";
+      const detail = error.response?.data?.detail;
+
+      if (detail) {
+        if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => {
+            const field = err.loc && err.loc.length > 1 ? err.loc[err.loc.length - 1] : '';
+            return `${field ? `(${field}): ` : ''}${err.msg}`;
+          }).join(' | ');
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        }
+      }
+
       setMessage({ type: 'error', text: errorMessage });
     } finally {
       setLoading(false);
@@ -182,33 +201,61 @@ const AddUserForm = () => {
           </label>
           <select 
             multiple
-            name="departments" 
-            value={formData.departments} 
-            onChange={handleDepartmentChange} 
+            name="departments_ids" 
+            value={formData.departments_ids} 
+            onChange={handleMultiSelectChange} 
+            required // اجباری برای ارسال موفقیت‌آمیز
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
-            size="4" 
+            size="3" 
           >
             {departmentsList.map(dept => (
-              <option key={dept.name} value={dept.name}>
+              <option key={`dept-${dept.id}`} value={dept.id}>
                 {dept.name}
               </option>
             ))}
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            شماره تماس سرپرست‌ها <span className="text-gray-400 font-normal text-xs">(با کاما جدا کنید)</span>
-          </label>
-          <input 
-            type="text" 
-            name="supervisor_phone_number" 
-            value={formData.supervisor_phone_number} 
-            onChange={handleChange} 
-            dir="ltr"
-            placeholder="09123456789, 09987654321" 
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-left"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              سرپرست‌ها <span className="text-gray-400 font-normal text-xs">(چند انتخابی)</span>
+            </label>
+            <select 
+              multiple
+              name="supervisors_ids" 
+              value={formData.supervisors_ids} 
+              onChange={handleMultiSelectChange} 
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+              size="4"
+            >
+              {usersList.map(user => (
+                <option key={`sup-${user.id}`} value={user.id}>
+                  {user.name} {user.surname}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              زیردست‌ها <span className="text-gray-400 font-normal text-xs">(چند انتخابی)</span>
+            </label>
+            <select 
+              multiple
+              name="subordinates_ids" 
+              value={formData.subordinates_ids} 
+              onChange={handleMultiSelectChange} 
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+              size="4"
+            >
+              {usersList.map(user => (
+                <option key={`sub-${user.id}`} value={user.id}>
+                  {user.name} {user.surname}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="pt-4">
