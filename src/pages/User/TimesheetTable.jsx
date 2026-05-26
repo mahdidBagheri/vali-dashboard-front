@@ -13,7 +13,6 @@ const getDaysInJalaliMonth = (year, month) => {
   return isLeap ? 30 : 29;
 };
 
-// تبدیل تاریخ جلالی به میلادی برای ارسال به API
 const jalaaliToGregorian = (jy, jm, jd) => {
   let gy = (jy <= 979) ? 621 : 1600;
   jy -= (jy <= 979) ? 0 : 979;
@@ -34,18 +33,14 @@ const jalaaliToGregorian = (jy, jm, jd) => {
   return [gy2, gm, gd];
 };
 
-// محاسبه اختلاف زمان
 const calculateNetTime = (start, stop, breakMinutes) => {
   if (!start || !stop) return '00:00';
   const [startH, startM] = start.split(':').map(Number);
   const [stopH, stopM] = stop.split(':').map(Number);
   let totalMinutes = (stopH * 60 + stopM) - (startH * 60 + startM);
-  
   if (totalMinutes < 0) totalMinutes += 24 * 60; 
   totalMinutes -= (Number(breakMinutes) || 0);
-
   if (totalMinutes <= 0) return '00:00';
-
   const netH = Math.floor(totalMinutes / 60);
   const netM = totalMinutes % 60;
   return `${String(netH).padStart(2, '0')}:${String(netM).padStart(2, '0')}`;
@@ -55,40 +50,35 @@ export default function TimesheetTable() {
   const [year, setYear] = useState(1405);
   const [month, setMonth] = useState(2); 
   const [tableData, setTableData] = useState([]);
+  const [projectsData, setProjectsData] = useState([]);
   
   const [showDept, setShowDept] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const tableRef = useRef(null);
 
-  // تولید ردیف‌های اولیه
+  // دریافت دیتای پروژه‌ها برای منوهای کشویی داخل جدول
+  useEffect(() => {
+    fetch('/api/v1/department/get-current-user-projects')
+      .then(res => res.json())
+      .then(data => setProjectsData(data || []))
+      .catch(err => console.error("Error fetching projects for table:", err));
+  }, []);
+
   useEffect(() => {
     const daysCount = getDaysInJalaliMonth(year, month);
     const newData = Array.from({ length: daysCount }, (_, i) => {
       const [gy, gm, gd] = jalaaliToGregorian(year, month, i + 1);
       const gregorianDate = `${gy}-${String(gm).padStart(2, '0')}-${String(gd).padStart(2, '0')}`;
-      
       return {
-        localId: `initial-${i}`, // شناسه محلی برای مدیریت در ری‌اکت
-        id: null,                // شناسه دیتابیس که از سمت سرور میاد
-        dayIndex: i + 1,
-        dateStringGregorian: gregorianDate,
-        department_id: '',
-        project_id: '',
-        sub_project1_id: '',
-        sub_project2_id: '',
-        description: '',
-        start: '',
-        stop: '',
-        breakMin: 0,
-        netHours: '00:00',
-        isDirty: false // وضعیت تغییرات برای ذخیره‌سازی
+        localId: `initial-${i}`, id: null, dayIndex: i + 1, dateStringGregorian: gregorianDate,
+        department_id: '', project_id: '', sub_project1_id: '', sub_project2_id: '', description: '',
+        start: '', stop: '', breakMin: 0, netHours: '00:00', isDirty: false
       };
     });
     setTableData(newData);
   }, [year, month]);
 
-  // مدیریت کلیک خارج از جدول
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (tableRef.current && !tableRef.current.contains(e.target)) setIsExpanded(false);
@@ -97,24 +87,19 @@ export default function TimesheetTable() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isExpanded]);
 
-  // مدیریت تغییرات در اینپوت‌ها
   const handleInputChange = (index, field, value) => {
     const updated = [...tableData];
     updated[index][field] = value;
-    updated[index].netHours = calculateNetTime(
-      updated[index].start, updated[index].stop, updated[index].breakMin
-    );
-    updated[index].isDirty = true; // علامت‌گذاری ردیف به عنوان "تغییر یافته"
+    if (['start', 'stop', 'breakMin'].includes(field)) {
+      updated[index].netHours = calculateNetTime(updated[index].start, updated[index].stop, updated[index].breakMin);
+    }
+    updated[index].isDirty = true;
     setTableData(updated);
   };
 
-  // اضافه کردن یک ردیف جدید برای یک روز خاص (جهت ثبت چند تایم در یک روز)
   const handleAddRowForDay = (dayIndex, dateStringGregorian) => {
     const newRow = {
-        localId: `new-${Date.now()}`,
-        id: null,
-        dayIndex, 
-        dateStringGregorian,
+        localId: `new-${Date.now()}`, id: null, dayIndex, dateStringGregorian,
         department_id: '', project_id: '', sub_project1_id: '', sub_project2_id: '', description: '',
         start: '', stop: '', breakMin: 0, netHours: '00:00', isDirty: false
     };
@@ -124,27 +109,21 @@ export default function TimesheetTable() {
     setTableData(updated);
   };
 
-  // 1. API CALL: POST - ایجاد سابقه جدید با کلیک روی دکمه استارت
   const handleStartClick = async (index) => {
     const row = tableData[index];
     const now = new Date();
-    // گرفتن زمان فعلی به فرمت HH:mm:ss.SSSZ
     const startTimeStringZ = now.toISOString().split('T')[1]; 
 
     try {
       const res = await fetch('/api/v1/timesheet/create-timesheet-entry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date_: row.dateStringGregorian,
-          start_time: startTimeStringZ
-        })
+        body: JSON.stringify({ date_: row.dateStringGregorian, start_time: startTimeStringZ })
       });
       const data = await res.json();
-
       const updated = [...tableData];
-      updated[index].id = data.id; // گرفتن ID از دیتابیس
-      updated[index].start = data.start_time.substring(0, 5); // تبدیل 11:59:04.036Z به 11:59 برای اینپوت
+      updated[index].id = data.id; 
+      updated[index].start = data.start_time.substring(0, 5); 
       updated[index].isDirty = true;
       setTableData(updated);
     } catch (err) {
@@ -153,9 +132,46 @@ export default function TimesheetTable() {
     }
   };
 
-  // 2. API CALL: PUT - ذخیره و آپدیت ردیف‌هایی که تغییر کرده‌اند
+  const handleFinishClick = async (index) => {
+    const row = tableData[index];
+    if (!row.id) return;
+
+    const now = new Date();
+    const stopTimeStringZ = now.toISOString().split('T')[1]; 
+    const localStopTime = now.toTimeString().substring(0, 5);
+
+    try {
+      const payload = {
+        date_: row.dateStringGregorian,
+        start_time: row.start ? `${row.start}:00.000Z` : "00:00:00.000Z",
+        end_time: stopTimeStringZ,
+        deduction_hours: "PT0S",
+        type: "normal",
+        department_id: Number(row.department_id) || 0,
+        project_id: Number(row.project_id) || 0,
+        sub_project1_id: Number(row.sub_project1_id) || 0,
+        sub_project2_id: Number(row.sub_project2_id) || 0,
+        description: row.description || ""
+      };
+
+      await fetch(`/api/v1/timesheet/update-timesheet-entry/${row.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const updated = [...tableData];
+      updated[index].stop = localStopTime;
+      updated[index].netHours = calculateNetTime(updated[index].start, localStopTime, updated[index].breakMin);
+      updated[index].isDirty = false; // Successfully saved
+      setTableData(updated);
+    } catch (err) {
+      console.error("Error finishing entry:", err);
+      alert("خطا در ثبت پایان");
+    }
+  };
+
   const handleSaveAll = async () => {
-    // فقط ردیف‌هایی را ذخیره کن که ویرایش شده‌اند و ID دارند (استارت خورده‌اند)
     const dirtyRows = tableData.filter(r => r.isDirty && r.id !== null);
     if (dirtyRows.length === 0) return;
 
@@ -181,8 +197,6 @@ export default function TimesheetTable() {
           body: JSON.stringify(payload)
         });
       }
-      
-      // پاک کردن وضعیت کثیف (Dirty) بعد از ذخیره موفق
       setTableData(prev => prev.map(r => r.isDirty ? { ...r, isDirty: false } : r));
       alert("تغییرات با موفقیت ذخیره شد");
     } catch (err) {
@@ -196,23 +210,17 @@ export default function TimesheetTable() {
   const wrapperClasses = isExpanded 
     ? "fixed inset-0 z-50 bg-gray-900/90 flex items-center justify-center p-0"
     : "relative w-full max-w-6xl mx-auto my-2 p-0 sm:p-4";
-
   const tableClasses = isExpanded
     ? "bg-white w-full h-full sm:h-auto sm:max-h-[95vh] flex flex-col overflow-hidden"
     : "bg-white rounded shadow flex flex-col overflow-hidden border border-gray-300";
 
-  const timeInputClasses = "w-[38px] min-w-[38px] max-w-[38px] bg-transparent p-0 m-0 h-5 outline-none focus:bg-indigo-50 text-center text-[10px] tracking-tighter leading-none appearance-none block mx-auto " + 
-    "[&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-clear-button]:hidden [&::-webkit-inner-spin-button]:hidden " + 
-    "[&::-webkit-datetime-edit-ampm-field]:hidden [&::-webkit-datetime-edit-ampm-field]:w-0 " + 
-    "[&::-webkit-datetime-edit]:p-0 [&::-webkit-datetime-edit-fields-wrapper]:p-0";
-
-  const inputClasses = "w-full bg-transparent outline-none text-center p-0 h-5 text-[9px]";
+  const timeInputClasses = "w-[38px] min-w-[38px] max-w-[38px] bg-transparent p-0 m-0 h-5 outline-none focus:bg-indigo-50 text-center text-[10px] tracking-tighter leading-none appearance-none block mx-auto [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-clear-button]:hidden [&::-webkit-inner-spin-button]:hidden [&::-webkit-datetime-edit-ampm-field]:hidden [&::-webkit-datetime-edit-ampm-field]:w-0 [&::-webkit-datetime-edit]:p-0 [&::-webkit-datetime-edit-fields-wrapper]:p-0";
+  const inputClasses = "w-full bg-transparent outline-none text-center p-0 h-5 text-[9px] cursor-pointer";
 
   return (
     <div dir="rtl" className={wrapperClasses}>
       <div ref={tableRef} onClick={() => !isExpanded && setIsExpanded(true)} className={tableClasses}>
         
-        {/* هدر */}
         <div className="p-1 bg-indigo-700 text-white flex justify-between items-center shrink-0">
           <h2 className="text-[11px] sm:text-sm font-bold flex items-center gap-1">
             تایم‌شیت {isExpanded && <span className="bg-indigo-500 px-1 rounded animate-pulse">زوم</span>}
@@ -225,7 +233,6 @@ export default function TimesheetTable() {
           </div>
         </div>
 
-        {/* بدنه */}
         <div className="overflow-x-auto overflow-y-auto flex-1 bg-gray-50">
           <table className="w-full text-center table-fixed border-collapse">
             <thead className="bg-gray-200 uppercase sticky top-0 z-10 text-[9px] text-gray-700 font-bold shadow-sm">
@@ -240,10 +247,10 @@ export default function TimesheetTable() {
                 </th>
                 {showDept && (
                   <>
-                    <th className="p-0 border-b border-gray-300 w-10">دپارتمان</th>
-                    <th className="p-0 border-b border-gray-300 w-10">پروژه</th>
-                    <th className="p-0 border-b border-gray-300 w-10">زیرپروژه۱</th>
-                    <th className="p-0 border-b border-gray-300 w-10">زیرپروژه۲</th>
+                    <th className="p-0 border-b border-gray-300 w-10 text-[8px]">ID دپارتمان</th>
+                    <th className="p-0 border-b border-gray-300 w-14 text-[8px]">پروژه</th>
+                    <th className="p-0 border-b border-gray-300 w-14 text-[8px]">زیرپروژه۱</th>
+                    <th className="p-0 border-b border-gray-300 w-14 text-[8px]">زیرپروژه۲</th>
                     <th className="p-0 border-b border-gray-300 w-16">توضیحات</th>
                   </>
                 )}
@@ -254,76 +261,112 @@ export default function TimesheetTable() {
               </tr>
             </thead>
             <tbody className="text-[10px]">
-              {tableData.map((row, index) => (
-                <tr key={row.localId} className="border-b border-gray-100 hover:bg-indigo-50 bg-white">
-                  
-                  {/* سلول روز و دکمه اضافه کردن تایم جدید */}
-                  <td className="p-0 font-bold text-gray-800 bg-gray-100/50">
-                    <div className="flex items-center justify-between px-1 h-full">
-                      <span className="flex-1 text-center">{row.dayIndex}</span>
-                      <button 
-                        onClick={() => handleAddRowForDay(row.dayIndex, row.dateStringGregorian)} 
-                        className="text-[9px] text-indigo-500 bg-indigo-100 rounded-full w-3 h-3 flex items-center justify-center pb-0.5" 
-                        title="ثبت زمان جدید برای این روز"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </td>
-                  
-                  {showDept && (
-                    <>
-                      <td className="p-0 border-r border-gray-100 overflow-hidden">
-                        <input type="number" placeholder="ID" value={row.department_id} onChange={(e) => handleInputChange(index, 'department_id', e.target.value)} className={inputClasses} />
-                      </td>
-                      <td className="p-0 border-r border-gray-100 overflow-hidden">
-                        <input type="number" placeholder="ID" value={row.project_id} onChange={(e) => handleInputChange(index, 'project_id', e.target.value)} className={inputClasses} />
-                      </td>
-                      <td className="p-0 border-r border-gray-100 overflow-hidden">
-                        <input type="number" placeholder="ID" value={row.sub_project1_id} onChange={(e) => handleInputChange(index, 'sub_project1_id', e.target.value)} className={inputClasses} />
-                      </td>
-                      <td className="p-0 border-r border-gray-100 overflow-hidden">
-                        <input type="number" placeholder="ID" value={row.sub_project2_id} onChange={(e) => handleInputChange(index, 'sub_project2_id', e.target.value)} className={inputClasses} />
-                      </td>
-                      <td className="p-0 border-r border-gray-100 overflow-hidden">
-                        <input type="text" placeholder="..." value={row.description} onChange={(e) => handleInputChange(index, 'description', e.target.value)} className={inputClasses} />
-                      </td>
-                    </>
-                  )}
-                  
-                  {/* استارت و ساعت شروع */}
-                  <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[55px] w-[55px]">
-                    <div className="flex items-center justify-center gap-0.5 h-full w-full px-0.5">
-                      {!row.id && (
-                        <button onClick={() => handleStartClick(index)} className="text-[7px] text-white bg-green-500 rounded px-1 py-0.5" title="استارت">▶</button>
-                      )}
-                      <input type="time" value={row.start} onChange={(e) => handleInputChange(index, 'start', e.target.value)} className={timeInputClasses} />
-                    </div>
-                  </td>
-                  
-                  <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[40px] w-[40px]">
-                    <input type="time" value={row.stop} onChange={(e) => handleInputChange(index, 'stop', e.target.value)} className={timeInputClasses} />
-                  </td>
-                  
-                  <td className="p-0 border-r border-gray-100 overflow-hidden">
-                    <input type="number" min="0" value={row.breakMin || ''} onChange={(e) => handleInputChange(index, 'breakMin', e.target.value)} className="w-full bg-transparent p-0 h-5 outline-none text-center appearance-none [&::-webkit-inner-spin-button]:hidden text-[10px]" />
-                  </td>
-                  
-                  <td className="p-0 border-r border-gray-100 font-bold text-indigo-600 tracking-tighter" dir="ltr">{row.netHours}</td>
-                </tr>
-              ))}
+              {tableData.map((row, index) => {
+                const rowProjectList = projectsData.find(p => p.id === Number(row.project_id));
+                const rowSub1List = rowProjectList?.sub_projects1 || [];
+                const rowSub2List = rowSub1List.find(sp => sp.id === Number(row.sub_project1_id))?.sub_projects2 || [];
+
+                return (
+                  <tr key={row.localId} className="border-b border-gray-100 hover:bg-indigo-50 bg-white">
+                    <td className="p-0 font-bold text-gray-800 bg-gray-100/50">
+                      <div className="flex items-center justify-between px-1 h-full">
+                        <span className="flex-1 text-center">{row.dayIndex}</span>
+                        <button onClick={() => handleAddRowForDay(row.dayIndex, row.dateStringGregorian)} className="text-[9px] text-indigo-500 bg-indigo-100 rounded-full w-3 h-3 flex items-center justify-center pb-0.5" title="ثبت زمان جدید برای این روز">+</button>
+                      </div>
+                    </td>
+                    
+                    {showDept && (
+                      <>
+                        <td className="p-0 border-r border-gray-100 overflow-hidden bg-gray-100">
+                          <input type="number" value={row.department_id} readOnly title="شناسه دپارتمان" className="w-full bg-transparent outline-none text-center p-0 h-5 text-[9px] cursor-not-allowed" />
+                        </td>
+                        <td className="p-0 border-r border-gray-100 overflow-hidden">
+                          <select 
+                            value={row.project_id} 
+                            onChange={(e) => {
+                              const projId = e.target.value;
+                              const selectedProj = projectsData.find(p => p.id === Number(projId));
+                              const updated = [...tableData];
+                              updated[index].project_id = projId;
+                              updated[index].department_id = selectedProj ? selectedProj.department_id : '';
+                              updated[index].sub_project1_id = '';
+                              updated[index].sub_project2_id = '';
+                              updated[index].isDirty = true;
+                              setTableData(updated);
+                            }} 
+                            className={inputClasses}
+                          >
+                            <option value="">انتخاب...</option>
+                            {projectsData.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-0 border-r border-gray-100 overflow-hidden">
+                          <select 
+                            value={row.sub_project1_id} 
+                            onChange={(e) => {
+                              const updated = [...tableData];
+                              updated[index].sub_project1_id = e.target.value;
+                              updated[index].sub_project2_id = '';
+                              updated[index].isDirty = true;
+                              setTableData(updated);
+                            }} 
+                            className={inputClasses}
+                          >
+                            <option value="">انتخاب...</option>
+                            {rowSub1List.map(sp1 => <option key={sp1.id} value={sp1.id}>{sp1.name}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-0 border-r border-gray-100 overflow-hidden">
+                          <select 
+                            value={row.sub_project2_id} 
+                            onChange={(e) => {
+                              const updated = [...tableData];
+                              updated[index].sub_project2_id = e.target.value;
+                              updated[index].isDirty = true;
+                              setTableData(updated);
+                            }} 
+                            className={inputClasses}
+                          >
+                            <option value="">انتخاب...</option>
+                            {rowSub2List.map(sp2 => <option key={sp2.id} value={sp2.id}>{sp2.name}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-0 border-r border-gray-100 overflow-hidden">
+                          <input type="text" placeholder="..." value={row.description} onChange={(e) => handleInputChange(index, 'description', e.target.value)} className="w-full bg-transparent outline-none text-center p-0 h-5 text-[9px]" />
+                        </td>
+                      </>
+                    )}
+                    
+                    <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[55px] w-[55px]">
+                      <div className="flex items-center justify-center gap-0.5 h-full w-full px-0.5">
+                        {!row.id ? (
+                          <button onClick={() => handleStartClick(index)} className="text-[7px] text-white bg-green-500 rounded px-1 py-0.5" title="شروع">▶</button>
+                        ) : !row.stop ? (
+                          <button onClick={() => handleFinishClick(index)} className="text-[7px] text-white bg-red-500 rounded px-1 py-0.5" title="پایان">⏹</button>
+                        ) : null}
+                        <input type="time" value={row.start} onChange={(e) => handleInputChange(index, 'start', e.target.value)} className={timeInputClasses} disabled={!!row.id} />
+                      </div>
+                    </td>
+                    
+                    <td className="p-0 border-r border-gray-100 overflow-hidden max-w-[40px] w-[40px]">
+                      <input type="time" value={row.stop} onChange={(e) => handleInputChange(index, 'stop', e.target.value)} className={timeInputClasses} />
+                    </td>
+                    
+                    <td className="p-0 border-r border-gray-100 overflow-hidden">
+                      <input type="number" min="0" value={row.breakMin || ''} onChange={(e) => handleInputChange(index, 'breakMin', e.target.value)} className="w-full bg-transparent p-0 h-5 outline-none text-center appearance-none [&::-webkit-inner-spin-button]:hidden text-[10px]" />
+                    </td>
+                    
+                    <td className="p-0 border-r border-gray-100 font-bold text-indigo-600 tracking-tighter" dir="ltr">{row.netHours}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
 
-        {/* فوتر */}
         <div className="p-1 bg-gray-200 flex justify-between items-center shrink-0">
           <span className="text-[8px] text-gray-500">{isExpanded ? 'خروج: لمس حاشیه' : 'لمس جدول = زوم'}</span>
-          <button 
-            onClick={handleSaveAll} 
-            disabled={isSaving}
-            className="px-2 py-0.5 bg-indigo-600 text-white text-[9px] rounded font-medium disabled:opacity-50"
-          >
+          <button onClick={handleSaveAll} disabled={isSaving} className="px-2 py-0.5 bg-indigo-600 text-white text-[9px] rounded font-medium disabled:opacity-50">
             {isSaving ? 'در حال ذخیره...' : 'ذخیره'}
           </button>
         </div>
