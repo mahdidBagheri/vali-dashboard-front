@@ -189,7 +189,6 @@ const DailyTimeRegister = () => {
 
       const serverData = await createEntryApi(apiDate, timeZ);
       
-      // Get values from the previous entry if it exists
       const hasPreviousEntry = entries.length > 0;
       const lastEntry = hasPreviousEntry ? entries[entries.length - 1] : {};
       
@@ -197,13 +196,11 @@ const DailyTimeRegister = () => {
         id: serverData.id,
         startTime: timeNowStr, 
         endTime: '',
-        // Copy fields from last entry or default to empty string
         department_id: lastEntry.department_id || '',
         project_id: lastEntry.project_id || '',
         sub_project1_id: lastEntry.sub_project1_id || '',
         sub_project2_id: lastEntry.sub_project2_id || '',
         description: lastEntry.description || '',
-        // If we copied data, mark as unsaved so the user knows it needs to be synced
         isSaved: !hasPreviousEntry 
       };
       
@@ -217,7 +214,6 @@ const DailyTimeRegister = () => {
       setIsSaving(false);
     }
   };
-
 
   const handleEnd = async () => {
     let updatedEntries = [...entries];
@@ -264,39 +260,120 @@ const DailyTimeRegister = () => {
     }
   };
 
+  const handleAddManualRow = () => {
+    const hasPreviousEntry = entries.length > 0;
+    const lastEntry = hasPreviousEntry ? entries[entries.length - 1] : {};
+
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const timeNowStr = `${hours}:${minutes}`;
+
+    const newEntry = {
+      id: `temp-${Date.now()}`,
+      startTime: timeNowStr, 
+      endTime: '',
+      department_id: lastEntry.department_id || '',
+      project_id: lastEntry.project_id || '',
+      sub_project1_id: lastEntry.sub_project1_id || '',
+      sub_project2_id: lastEntry.sub_project2_id || '',
+      description: '',
+      isSaved: false 
+    };
+    
+    setEntries([...entries, newEntry]);
+  };
+
   const handleFieldEdit = (index, field, value) => {
     const updatedEntries = [...entries];
     updatedEntries[index][field] = value;
     updatedEntries[index].isSaved = false;
-
-    if (field === 'endTime' && index < updatedEntries.length - 1) {
-      updatedEntries[index + 1].startTime = value;
-      updatedEntries[index + 1].isSaved = false;
-    }
-    if (field === 'startTime' && index > 0) {
-      updatedEntries[index - 1].endTime = value;
-      updatedEntries[index - 1].isSaved = false;
-    }
     
     setEntries(updatedEntries);
   };
 
+  // Generalized function to update dropdown fields instantly and auto-save
+  const updateEntryDropdownsAndSave = async (index, fields) => {
+    // 1. Snapshot the target entry with the new fields applied
+    const currentEntry = { ...entries[index], ...fields };
+    
+    // 2. Optimistic UI update
+    setEntries(prev => {
+      const newEntries = [...prev];
+      Object.keys(fields).forEach(key => {
+        newEntries[index][key] = fields[key];
+      });
+      newEntries[index].isSaved = false;
+      return newEntries;
+    });
+
+    // 3. Auto-save to server if valid department is set
+    const depId = Number(currentEntry.department_id);
+    if (!depId || depId <= 0) return;
+
+    try {
+      let entryToSave = { ...currentEntry };
+      
+      // Handle automatic creation if it's a temp row
+      if (String(entryToSave.id).startsWith('temp-')) {
+        const timeZ = entryToSave.startTime ? `${entryToSave.startTime}:00.000Z` : "00:00:00.000Z";
+        const serverData = await createEntryApi(getApiDate(), timeZ);
+        entryToSave.id = serverData.id;
+      }
+      
+      await updateEntryApi(entryToSave);
+      entryToSave.isSaved = true;
+
+      // 4. Update the real ID and change state back to `isSaved: true` 
+      // (Using previous state carefully so we don't overwrite user changes made while fetching)
+      setEntries(prev => {
+        const newEntries = [...prev];
+        const entryIndex = newEntries.findIndex(e => e.id === currentEntry.id);
+        if (entryIndex !== -1) {
+            newEntries[entryIndex] = { ...newEntries[entryIndex], ...entryToSave, isSaved: true };
+        }
+        return newEntries;
+      });
+      
+      const savedIndex = lastSavedEntriesRef.current.findIndex(e => e.id === entryToSave.id || e.id === currentEntry.id);
+      if (savedIndex >= 0) {
+          lastSavedEntriesRef.current[savedIndex] = { ...entryToSave };
+      } else {
+          lastSavedEntriesRef.current.push({ ...entryToSave });
+      }
+    } catch (error) {
+      console.error("Auto save failed:", error);
+    }
+  };
+
   const handleDepartmentSelect = (index, departmentId) => {
-    handleFieldEdit(index, 'department_id', departmentId);
-    handleFieldEdit(index, 'project_id', '');
-    handleFieldEdit(index, 'sub_project1_id', '');
-    handleFieldEdit(index, 'sub_project2_id', '');
+    updateEntryDropdownsAndSave(index, {
+        department_id: departmentId,
+        project_id: '',
+        sub_project1_id: '',
+        sub_project2_id: ''
+    });
   };
 
   const handleProjectSelect = (index, projectId) => {
-    handleFieldEdit(index, 'project_id', projectId);
-    handleFieldEdit(index, 'sub_project1_id', '');
-    handleFieldEdit(index, 'sub_project2_id', '');
+    updateEntryDropdownsAndSave(index, {
+        project_id: projectId,
+        sub_project1_id: '',
+        sub_project2_id: ''
+    });
   };
 
   const handleSubProject1Select = (index, subProject1Id) => {
-    handleFieldEdit(index, 'sub_project1_id', subProject1Id);
-    handleFieldEdit(index, 'sub_project2_id', '');
+    updateEntryDropdownsAndSave(index, {
+        sub_project1_id: subProject1Id,
+        sub_project2_id: ''
+    });
+  };
+
+  const handleSubProject2Select = (index, subProject2Id) => {
+    updateEntryDropdownsAndSave(index, {
+        sub_project2_id: subProject2Id
+    });
   };
 
   const handleDeleteRow = async (idToDelete) => {
@@ -422,7 +499,7 @@ const DailyTimeRegister = () => {
           </div>
       )}
 
-      <div className="overflow-x-auto mb-8 border rounded-lg">
+      <div className="overflow-x-auto border rounded-lg">
         <table className="w-full text-sm text-center text-gray-600">
           <thead className="bg-gray-50 text-gray-700 font-semibold border-b">
             <tr>
@@ -501,7 +578,7 @@ const DailyTimeRegister = () => {
                     <td className="px-4 py-3">
                       <select 
                         value={entry.sub_project2_id || ''} 
-                        onChange={(e) => handleFieldEdit(index, 'sub_project2_id', e.target.value)} 
+                        onChange={(e) => handleSubProject2Select(index, e.target.value)} 
                         disabled={!entry.sub_project1_id}
                         className="bg-transparent outline-none text-center border-b border-dashed border-gray-300 focus:border-indigo-500 w-full min-w-[120px] disabled:opacity-50"
                       >
@@ -547,6 +624,15 @@ const DailyTimeRegister = () => {
             </tfoot>
           )}
         </table>
+      </div>
+      
+      <div className="mt-4 mb-8 flex justify-start">
+        <button 
+          onClick={handleAddManualRow} 
+          className="text-sm bg-emerald-100 text-emerald-700 font-bold px-4 py-2 rounded-lg hover:bg-emerald-200 shadow-sm transition"
+        >
+          + افزودن رکورد دستی
+        </button>
       </div>
 
       <div className="flex flex-col items-center justify-center mt-8 pt-6 border-t border-gray-200">

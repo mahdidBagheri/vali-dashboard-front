@@ -4,8 +4,9 @@ import { AuthContext } from '../../context/AuthContext';
 import AddUserForm from './AddUserForm';
 import ManageDepartments from './ManageDepartments';
 import ManageProjects from './ManageProjects';
-// 1. IMPORT THE NEW COMPONENT
 import AdminUserManagement from './AdminUserManagement'; // Make sure this path is correct
+// 1. IMPORT THE NEW COMPONENT
+import AdminMonitorHours from './AdminMonitorHours';
 
 const AdminDashboard = () => {
     const [activeTab, setActiveTab] = useState('addUser');
@@ -66,6 +67,17 @@ const AdminDashboard = () => {
                                 مدیریت پروژه‌ها
                             </button>
                         </li>
+                        {/* 2. ADD THE NEW TAB FOR MONITORING HOURS */}
+                        <li>
+                            <button
+                                onClick={() => setActiveTab('monitorHours')}
+                                className={`w-full text-right px-4 py-2 rounded ${
+                                    activeTab === 'monitorHours' ? 'bg-blue-600' : 'hover:bg-gray-700'
+                                }`}
+                            >
+                                نظارت بر ساعات کارکرد
+                            </button>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -79,6 +91,8 @@ const AdminDashboard = () => {
                         {activeTab === 'manageUsers' && 'مدیریت کاربران'}
                         {activeTab === 'manageDepartments' && 'مدیریت دپارتمان‌ها'}
                         {activeTab === 'manageProjects' && 'مدیریت پروژه‌ها'}
+                        {/* 3. ADD HEADER TITLE FOR NEW TAB */}
+                        {activeTab === 'monitorHours' && 'نظارت بر ساعات کارکرد'}
                     </h2>
                     <button
                         onClick={handleLogout}
@@ -91,12 +105,12 @@ const AdminDashboard = () => {
                 {/* Content Area */}
                 <main className="flex-1 p-6 overflow-y-auto">
                     {activeTab === 'addUser' && <AddUserForm />}
-                    
-                    {/* 2. REPLACE THE PLACEHOLDER DIV WITH THE COMPONENT */}
                     {activeTab === 'manageUsers' && <AdminUserManagement />}
-
                     {activeTab === 'manageDepartments' && <ManageDepartments />}
                     {activeTab === 'manageProjects' && <ManageProjects />}
+                    
+                    {/* 4. RENDER THE NEW COMPONENT */}
+                    {activeTab === 'monitorHours' && <AdminMonitorHours />}
                 </main>
             </div>
         </div>
